@@ -4,6 +4,8 @@ use std::{ptr::NonNull, ffi::c_void, alloc::Layout, sync::{Mutex, MutexGuard}, c
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
 
+
+mod list;
 #[derive(Default)]
 struct Foo {
     x: Cell<i32>,
@@ -59,9 +61,14 @@ struct Rc<T> {
     ptr: NonNull<T>,
     metadata: NonNull<Metadata>
 }
-
 pub struct Ptr<T> {
     ptr: *const T
+}
+
+impl<T> Default for Ptr<T> {
+    fn default() -> Self {
+        Self { ptr: std::ptr::null() }
+    }
 }
 
 impl<T> Clone for Rc<T> {
@@ -246,8 +253,6 @@ fn basic() {
     assert_eq!(r.x.get(), 4);
     assert_eq!(r.y.get(), 3);
     free(r);
-
-
 }
 fn main() {
     let id = std::any::TypeId::of::<Foo>();
