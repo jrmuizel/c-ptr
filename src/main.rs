@@ -134,6 +134,7 @@ impl<T: 'static + TypeDesc> Ptr<T> {
         let (base, md) = METADATA_STORE.get(ptr as *const _ as usize, &mut md).unwrap();
         let offset = ptr as *const _ as usize - base;
         md.inc_ref();
+        assert!(!md.type_info.is_empty());
         if md.matches_type::<T>(offset) {
             return Ptr { ptr }
         }
