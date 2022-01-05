@@ -4,7 +4,7 @@ use std::{ptr::NonNull, ffi::c_void, alloc::Layout, sync::{Mutex, MutexGuard}, c
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
 
-
+#[derive(Default)]
 struct Foo {
     x: Cell<i32>,
     y: Cell<i32>
@@ -108,7 +108,7 @@ impl<T> Deref for Ptr<T> {
 }
 
 impl<T: 'static + TypeDesc> Ptr<T> {
-    fn cast<U: 'static + TypeDesc>(self) -> Ptr<U> {
+    fn cast<U: 'static + TypeDesc + Default>(self) -> Ptr<U> {
         let mut guard = METADATA_STORE.data.lock().unwrap();
         let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).unwrap();
         let offset = self.ptr as usize - base;
@@ -118,6 +118,7 @@ impl<T: 'static + TypeDesc> Ptr<T> {
             for ty in U::type_desc() {
                 md.type_info.push(TypeInfo { ty: ty.ty, offset: ty.offset + offset})
             }
+            unsafe { *((self.ptr as *mut U).as_mut().unwrap()) = Default::default() } 
         } else if md.matches_type::<U>(offset) {
         } else {
             // drop the mutex guard so we don't poison it
@@ -236,9 +237,12 @@ fn basic() {
     r.x.set(5);
     let m: Ptr<Cell<i32>> = r.clone().cast();
     m.set(4);
+
+    assert_eq!(r.y.get(), 0);
+
     let s: Ptr<Cell<i32>> = Ptr::new(&r.y);
     s.set(3);
-    
+
     assert_eq!(r.x.get(), 4);
     assert_eq!(r.y.get(), 3);
     free(r);
