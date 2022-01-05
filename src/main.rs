@@ -109,8 +109,8 @@ impl<T> Deref for Ptr<T> {
 
 impl<T: 'static + TypeDesc> Ptr<T> {
     fn cast<U: 'static + TypeDesc>(self) -> Ptr<U> {
-        let mut md = METADATA_STORE.data.lock().unwrap();
-        let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut md).unwrap();
+        let mut guard = METADATA_STORE.data.lock().unwrap();
+        let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).unwrap();
         let offset = self.ptr as usize - base;
         if md.type_info.is_empty() && offset + std::mem::size_of::<U>() <= md.size {
             // the memory is currently untyped, so copy in the type desc for the
@@ -120,7 +120,8 @@ impl<T: 'static + TypeDesc> Ptr<T> {
             }
         } else if md.matches_type::<U>(offset) {
         } else {
-            drop(md);
+            // drop the mutex guard so we don't poison it
+            drop(guard);
             panic!()
         }
         let ptr = Ptr { ptr: self.ptr as *const U };
