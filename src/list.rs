@@ -52,3 +52,21 @@ fn cell_clone<T: Default + Clone>(target: &Cell<T>) -> T {
 fn list_add(el: Ptr<list_head>, head: Ptr<list_head>) {
     __list_add(el, head.clone(), cell_clone(&head.next));
 }
+
+fn list_add_tail(el: Ptr<list_head>, head: Ptr<list_head>) {
+    __list_add(el, cell_clone(&head.prev), head.clone());
+}
+
+fn list_del(el: Ptr<list_head>) {
+    let prev = cell_clone(&el.prev);
+    let next = cell_clone(&el.next);
+    prev.next.set(next.clone());
+    next.prev.set(prev);
+    el.prev.take();
+    el.next.take();
+}
+
+fn list_empty(el: Ptr<list_head>) -> bool {
+    //el.next.get() == el
+    panic!()
+}

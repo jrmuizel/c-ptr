@@ -148,6 +148,10 @@ impl<T: 'static + TypeDesc> Ptr<T> {
         }
         panic!()
     }
+
+    fn null() -> Ptr<T> {
+        Ptr { ptr: std::ptr::null() }
+    }
 }
 #[derive(Debug)]
 pub struct TypeInfo {
