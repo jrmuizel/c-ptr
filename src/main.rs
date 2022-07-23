@@ -1,5 +1,5 @@
 
-use std::{ptr::NonNull, ffi::c_void, alloc::Layout, sync::{Mutex, MutexGuard}, collections::BTreeMap, cell::{Cell}, ops::Deref};
+use std::{ptr::NonNull, ffi::c_void, alloc::Layout, sync::{Mutex, MutexGuard}, collections::BTreeMap, cell::{Cell}, ops::{Deref, Sub}};
 
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
@@ -149,9 +149,22 @@ impl<T: 'static + TypeDesc> Ptr<T> {
         }
         panic!()
     }
+}
+impl<T> Ptr<T> {
+    fn ptr_eq(this: &Ptr<T>, other: &Ptr<T>) -> bool {
+        this.ptr == other.ptr
+    }
 
     fn null() -> Ptr<T> {
         Ptr { ptr: std::ptr::null() }
+    }
+}
+
+impl<T> Sub<usize> for Ptr<T> {
+    type Output = Ptr<T>;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        Ptr { ptr: self.ptr.wrapping_offset(-(rhs as isize)) }
     }
 }
 #[derive(Debug)]
@@ -167,6 +180,20 @@ pub trait TypeDesc {
 impl TypeDesc for c_void {
     fn type_desc() -> Vec<TypeInfo> {
         return Vec::new();
+    }
+}
+
+impl TypeDesc for i32 {
+    fn type_desc() -> Vec<TypeInfo> {
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>()}];
+        desc
+    }
+}
+
+impl<T: 'static> TypeDesc for Ptr<T> {
+    fn type_desc() -> Vec<TypeInfo> {
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>()}];
+        desc
     }
 }
 
