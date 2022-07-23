@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 memoffset = "0.6.5"
-once_cell = "1.9.0"
+once_cell = { git = "https://github.com/saethlin/once_cell", branch = "provenance" }

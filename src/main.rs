@@ -93,9 +93,10 @@ impl<T> Drop for Ptr<T> {
         let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).unwrap();
         md.cnt.set(md.cnt.get() - 1);
         if md.cnt.get() == 0 {
-            assert!(!md.valid, "contents would've leaked");
+            let valid = md.valid;
             unsafe { std::alloc::dealloc(self.ptr as *mut u8, Layout::from_size_align(md.size, MAX_ALIGN).unwrap()) }
             METADATA_STORE.remove(self.ptr as usize, &mut guard);
+            assert!(!valid, "contents would've leaked");
         }
     }
 }
@@ -225,10 +226,13 @@ pub fn malloc(size: usize) -> Ptr<c_void> {
 }
 
 pub fn free<T>(addr: Ptr<T>) {
-    let mut md = METADATA_STORE.data.lock().unwrap();
-    let (base, md) = METADATA_STORE.get(addr.ptr as usize, &mut md).unwrap();
-    assert_eq!(base, addr.ptr as usize);
+    let mut guard = METADATA_STORE.data.lock().unwrap();
+    let (base, md) = METADATA_STORE.get(addr.ptr as usize, &mut guard).unwrap();
+    let was_valid = md.valid;
     md.valid = false;
+    drop(guard);
+    assert!(was_valid, "this memory has already been freed");
+    assert_eq!(base, addr.ptr as usize);
 }
 
 impl<T: 'static> TypeDesc for Cell<T> {
@@ -258,6 +262,30 @@ fn basic() {
     assert_eq!(r.y.get(), 3);
     free(r);
 }
+#[test]
+fn uaf_basic() {
+    let r: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
+    // XXX: we want to make it so that the lifetime of p is limited to the statement
+    let p = &r.x;
+    let r3 = r.clone();
+    free(r3);
+    //let p = &r.x;
+    p.set(5);
+    //free(r);
+}
+/*
+#[test]
+fn array_type_punning() {
+    struct Point {
+        x: f32,
+        y: f32
+    }
+
+    let r: Ptr<Foo> = malloc(std::mem::size_of::<Point>() * 3).cast();
+    let k: Ptr<[f32; 32] = r.cast();
+    free(r);
+}*/
+
 fn main() {
     let id = std::any::TypeId::of::<Foo>();
     let r: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
