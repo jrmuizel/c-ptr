@@ -26,7 +26,8 @@ use std::cell::Cell;
 
 use memoffset::offset_of;
 
-use crate::{Ptr, TypeDesc, TypeInfo};
+use crate::{Ptr, TypeDesc, TypeInfo, malloc, free};
+#[derive(Default)]
 struct list_head {
     prev: Cell<Ptr<list_head>>,
     next: Cell<Ptr<list_head>> 
@@ -82,25 +83,27 @@ fn iterate(head: Ptr<list_head>) {
 
 impl TypeDesc for list_head {
     fn type_desc() -> Vec<TypeInfo> {
-        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>()}];
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
         for prev in Ptr::<list_head>::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, prev) + prev.offset, ty: prev.ty})
+            desc.push(TypeInfo{ offset: offset_of!(Self, prev) + prev.offset, ty: prev.ty, name: prev.name})
         }
         for next in Ptr::<list_head>::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, next) + next.offset, ty: next.ty})
+            desc.push(TypeInfo{ offset: offset_of!(Self, next) + next.offset, ty: next.ty, name: next.name})
         }
         desc
     }
 }
 
+
+//XXX: this doesn't work for non-repr C types
 impl TypeDesc for Foo {
     fn type_desc() -> Vec<TypeInfo> {
-        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>()}];
-        for x in i32::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, x) + x.offset, ty: x.ty})
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
+        for x in Cell::<i32>::type_desc() {
+            desc.push(TypeInfo{ offset: offset_of!(Self, x) + x.offset, ty: x.ty, name: x.name})
         }
-        for link in Ptr::<list_head>::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, link) + link.offset, ty: link.ty})
+        for link in list_head::type_desc() {
+            desc.push(TypeInfo{ offset: offset_of!(Self, link) + link.offset, ty: link.ty, name: link.name})
         }
         desc
     }
@@ -108,13 +111,43 @@ impl TypeDesc for Foo {
 
 macro_rules! list_entry {
     ($el: expr, $t: ty, $member: ident) => {
-        ($el - memoffset::offset_of!($t, $member)).cast::<$t>()
+        (Ptr::<$t>::from_usize($el.ptr as usize - memoffset::offset_of!($t, $member)))
     }
 }
 #[derive(Default)]
+#[repr(C)]
 struct Foo {
-    x: i32,
-    link: Ptr<list_head>
+    x: Cell<i32>,
+    link: list_head
+}
+
+pub fn do_sum() {
+
+    let list: Ptr<list_head> = malloc(std::mem::size_of::<list_head>()).cast();
+    init_list_head(list.clone());
+
+    let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
+    println!("malloc {:?}", f.ptr);
+
+    f.x.set(1);
+    dbg!(memoffset::offset_of!(Foo, link));
+    let el = Ptr::new(&f.link);
+    list_add(el, list.clone()); 
+
+    let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
+    println!("malloc {:?}", f.ptr);
+    f.x.set(5);
+    list_add(Ptr::new(&f.link), list.clone());
+
+    let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
+    println!("malloc {:?}", f.ptr);
+
+    f.x.set(9);
+    list_add(Ptr::new(&f.link), list.clone());
+
+    println!("{}", iterate_foo(list.clone()));
+    free(list);
+
 }
 
 
@@ -123,8 +156,8 @@ fn iterate_foo(head: Ptr<list_head>) -> i32 {
     let mut el = cell_clone(&head.next);
     while !Ptr::ptr_eq(&el, &head) {
         let f = list_entry!(el, Foo, link);
-        sum += f.x;
-        el = cell_clone(&head.next);
+        sum += f.x.get();
+        el = cell_clone(&el.next);
     }
     sum
 }
