@@ -200,6 +200,9 @@ impl<T> Sub<usize> for Ptr<T> {
         Ptr { ptr: self.ptr.wrapping_offset(-(rhs as isize)) }
     }
 }
+
+// An array of these describes the layout of a type
+// XXX: How should we deal with unions?
 #[derive(Debug)]
 pub struct TypeInfo {
     offset: usize,
