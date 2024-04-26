@@ -1,3 +1,4 @@
+workspace = { members = ["c-ptr-derive"] }
 [package]
 name = "c-ptr"
 version = "0.1.0"
@@ -8,3 +9,4 @@ edition = "2021"
 [dependencies]
 memoffset = "0.6.5"
 once_cell = { git = "https://github.com/saethlin/once_cell", branch = "provenance" }
+c-ptr-derive = { path = "./c-ptr-derive" }

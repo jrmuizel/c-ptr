@@ -81,6 +81,7 @@ fn iterate(head: Ptr<list_head>) {
 
 }
 
+ 
 impl TypeDesc for list_head {
     fn type_desc() -> Vec<TypeInfo> {
         let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
@@ -145,7 +146,8 @@ pub fn do_sum() {
     f.x.set(9);
     list_add(Ptr::new(&f.link), list.clone());
 
-    println!("{}", iterate_foo(list.clone()));
+    let result = iterate_foo(list.clone());
+    assert_eq!(result, 15);
     free(list);
 
 }
