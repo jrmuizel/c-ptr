@@ -25,7 +25,6 @@
 use std::cell::Cell;
 
 use memoffset::offset_of;
-use c_ptr_derive::TypeDesc;
 
 use crate::{Ptr, TypeDesc, TypeInfo, malloc, free};
 #[derive(Default, TypeDesc)]

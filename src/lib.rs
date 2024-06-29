@@ -3,7 +3,7 @@ use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::c_void, ops::{D
 
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
-use c_ptr_derive::TypeDesc as TypeDescDerive;
+pub use c_ptr_derive::TypeDesc;
 
 
 
@@ -73,6 +73,12 @@ struct Rc<T> {
 }
 pub struct Ptr<T> {
     ptr: *const T
+}
+
+impl<T> Ptr<T> {
+    pub fn is_null(&self) -> bool {
+        self.ptr == std::ptr::null()
+    }
 }
 
 impl<T> Default for Ptr<T> {
@@ -385,13 +391,13 @@ impl<T: 'static + TypeDesc> TypeDesc for [T; 2] {
 
 #[test]
 fn structural_type_punning() {
-    #[derive(TypeDescDerive, Default)]
+    #[derive(TypeDesc, Default)]
     struct Point1 {
         x: f32,
         y: f32
     }
 
-    #[derive(TypeDescDerive, Default)]
+    #[derive(TypeDesc, Default)]
     struct Point2 {
         x: f32,
         y: f32
