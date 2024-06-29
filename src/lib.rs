@@ -202,7 +202,6 @@ impl<T> Sub<usize> for Ptr<T> {
 }
 
 // An array of these describes the layout of a type
-// XXX: How should we deal with unions?
 #[derive(Debug)]
 pub struct TypeInfo {
     offset: usize,
@@ -210,6 +209,8 @@ pub struct TypeInfo {
     name: &'static str
 }
 
+// The returned Vec must be sorted by offset
+// unions can be represented by having multiple entries with the same offset
 pub trait TypeDesc {
     fn type_desc() -> Vec<TypeInfo>;
 }

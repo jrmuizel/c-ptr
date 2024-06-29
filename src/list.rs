@@ -25,9 +25,10 @@
 use std::cell::Cell;
 
 use memoffset::offset_of;
+use c_ptr_derive::TypeDesc;
 
 use crate::{Ptr, TypeDesc, TypeInfo, malloc, free};
-#[derive(Default)]
+#[derive(Default, TypeDesc)]
 struct list_head {
     prev: Cell<Ptr<list_head>>,
     next: Cell<Ptr<list_head>> 
@@ -82,40 +83,40 @@ fn iterate(head: Ptr<list_head>) {
 }
 
  
-impl TypeDesc for list_head {
-    fn type_desc() -> Vec<TypeInfo> {
-        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
-        for prev in Ptr::<list_head>::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, prev) + prev.offset, ty: prev.ty, name: prev.name})
-        }
-        for next in Ptr::<list_head>::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, next) + next.offset, ty: next.ty, name: next.name})
-        }
-        desc
-    }
-}
+// impl TypeDesc for list_head {
+//     fn type_desc() -> Vec<TypeInfo> {
+//         let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
+//         for prev in Ptr::<list_head>::type_desc() {
+//             desc.push(TypeInfo{ offset: offset_of!(Self, prev) + prev.offset, ty: prev.ty, name: prev.name})
+//         }
+//         for next in Ptr::<list_head>::type_desc() {
+//             desc.push(TypeInfo{ offset: offset_of!(Self, next) + next.offset, ty: next.ty, name: next.name})
+//         }
+//         desc
+//     }
+// }
 
 
 //XXX: this doesn't work for non-repr C types
-impl TypeDesc for Foo {
-    fn type_desc() -> Vec<TypeInfo> {
-        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
-        for x in Cell::<i32>::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, x) + x.offset, ty: x.ty, name: x.name})
-        }
-        for link in list_head::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, link) + link.offset, ty: link.ty, name: link.name})
-        }
-        desc
-    }
-}
+// impl TypeDesc for Foo {
+//     fn type_desc() -> Vec<TypeInfo> {
+//         let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
+//         for x in Cell::<i32>::type_desc() {
+//             desc.push(TypeInfo{ offset: offset_of!(Self, x) + x.offset, ty: x.ty, name: x.name})
+//         }
+//         for link in list_head::type_desc() {
+//             desc.push(TypeInfo{ offset: offset_of!(Self, link) + link.offset, ty: link.ty, name: link.name})
+//         }
+//         desc
+//     }
+// }
 
 macro_rules! list_entry {
     ($el: expr, $t: ty, $member: ident) => {
         (Ptr::<$t>::from_usize($el.ptr as usize - memoffset::offset_of!($t, $member)))
     }
 }
-#[derive(Default)]
+#[derive(Default, TypeDesc)]
 #[repr(C)]
 struct Foo {
     x: Cell<i32>,
