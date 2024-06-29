@@ -1,8 +1,11 @@
 
-use std::{ptr::NonNull, ffi::c_void, alloc::Layout, sync::{Mutex, MutexGuard}, collections::BTreeMap, cell::{Cell}, ops::{Deref, Sub}};
+use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::c_void, ops::{Deref, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
 
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
+use c_ptr_derive::TypeDesc as TypeDescDerive;
+
+
 
 use crate::list::do_sum;
 
@@ -144,7 +147,7 @@ impl<T: 'static + TypeDesc> Ptr<T> {
         } else {
             // drop the mutex guard so we don't poison it
             drop(guard);
-            panic!()
+            panic!("type mismatch")
         }
         let ptr = Ptr { ptr: self.ptr as *const U };
         std::mem::forget(self);
@@ -227,6 +230,14 @@ impl TypeDesc for i32 {
         desc
     }
 }
+
+impl TypeDesc for f32 {
+    fn type_desc() -> Vec<TypeInfo> {
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
+        desc
+    }
+}
+
 
 impl<T: 'static> TypeDesc for Ptr<T> {
     fn type_desc() -> Vec<TypeInfo> {
@@ -358,7 +369,41 @@ fn list() {
     do_sum();
 
 }
-/*
+
+impl<T: 'static + TypeDesc> TypeDesc for [T; 2] {
+    fn type_desc() -> Vec<TypeInfo> {
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
+        for i in 0..2 {
+            for x in T::type_desc() {
+                desc.push(TypeInfo{ offset: i * std::mem::size_of::<T>() + x.offset, ty: x.ty, name: x.name})
+            }
+        }
+        desc
+    }
+}
+
+
+#[test]
+fn structural_type_punning() {
+    #[derive(TypeDescDerive, Default)]
+    struct Point1 {
+        x: f32,
+        y: f32
+    }
+
+    #[derive(TypeDescDerive, Default)]
+    struct Point2 {
+        x: f32,
+        y: f32
+    }
+
+    let r: Ptr<Point1> = malloc(std::mem::size_of::<Point1>()).cast();
+    // this fails because we don't find the exact type in the metadata
+    // instead we need to try to match up the fields individually
+    //let k: Ptr<Point2> = r.clone().cast();
+    free(r);
+}
+
 #[test]
 fn array_type_punning() {
     struct Point {
@@ -366,10 +411,12 @@ fn array_type_punning() {
         y: f32
     }
 
-    let r: Ptr<Foo> = malloc(std::mem::size_of::<Point>() * 3).cast();
-    let k: Ptr<[f32; 32] = r.cast();
+    let r: Ptr<Foo> = malloc(std::mem::size_of::<Point>()).cast();
+    // this fails because we don't find the exact type in the metadata
+    // instead we need to try to match up the fields individually
+    // let k: Ptr<[f32; 2]> = r.clone().cast();
     free(r);
-}*/
+}
 
 fn main() {
     let id = std::any::TypeId::of::<Foo>();
