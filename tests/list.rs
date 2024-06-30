@@ -26,7 +26,7 @@ use std::cell::Cell;
 
 use memoffset::offset_of;
 
-use crate::{Ptr, TypeDesc, TypeInfo, malloc, free};
+use c_ptr::{Ptr, TypeDesc, TypeInfo, malloc, free};
 #[derive(Default, TypeDesc)]
 struct list_head {
     prev: Cell<Ptr<list_head>>,
@@ -112,7 +112,7 @@ fn iterate(head: Ptr<list_head>) {
 
 macro_rules! list_entry {
     ($el: expr, $t: ty, $member: ident) => {
-        (Ptr::<$t>::from_usize($el.ptr as usize - memoffset::offset_of!($t, $member)))
+        (Ptr::<$t>::from_usize($el.value() - memoffset::offset_of!($t, $member)))
     }
 }
 #[derive(Default, TypeDesc)]
@@ -128,7 +128,7 @@ pub fn do_sum() {
     init_list_head(list.clone());
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
-    println!("malloc {:?}", f.ptr);
+    println!("malloc {:?}", f.value());
 
     f.x.set(1);
     dbg!(memoffset::offset_of!(Foo, link));
@@ -136,12 +136,12 @@ pub fn do_sum() {
     list_add(el, list.clone()); 
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
-    println!("malloc {:?}", f.ptr);
+    println!("malloc {:?}", f.value());
     f.x.set(5);
     list_add(Ptr::new(&f.link), list.clone());
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
-    println!("malloc {:?}", f.ptr);
+    println!("malloc {:?}", f.value());
 
     f.x.set(9);
     list_add(Ptr::new(&f.link), list.clone());
@@ -162,4 +162,11 @@ fn iterate_foo(head: Ptr<list_head>) -> i32 {
         el = cell_clone(&el.next);
     }
     sum
+}
+
+
+#[test]
+fn list() {
+    do_sum();
+
 }

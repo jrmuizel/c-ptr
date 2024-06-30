@@ -23,8 +23,8 @@ pub fn derive_type_desc(input: TokenStream) -> TokenStream {
         
         quote! {
             for item in <#field_type>::type_desc() {
-                desc.push(TypeInfo {
-                    offset: offset_of!(Self, #field_name) + item.offset,
+                desc.push(::c_ptr::TypeInfo {
+                    offset: std::mem::offset_of!(Self, #field_name) + item.offset,
                     ty: item.ty,
                     name: item.name,
                 });
@@ -34,8 +34,8 @@ pub fn derive_type_desc(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         impl TypeDesc for #name {
-            fn type_desc() -> Vec<TypeInfo> {
-                let mut desc = vec![TypeInfo {
+            fn type_desc() -> Vec<::c_ptr::TypeInfo> {
+                let mut desc = vec![::c_ptr::TypeInfo {
                     offset: 0,
                     ty: std::any::TypeId::of::<Self>(),
                     name: std::any::type_name::<Self>(),

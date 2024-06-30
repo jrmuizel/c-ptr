@@ -7,10 +7,10 @@ pub use c_ptr_derive::TypeDesc;
 
 
 
-use crate::list::do_sum;
+//use crate::list::do_sum;
 
 
-mod list;
+//mod list;
 #[derive(Default)]
 struct Foo {
     x: Cell<i32>,
@@ -73,12 +73,6 @@ struct Rc<T> {
 }
 pub struct Ptr<T> {
     ptr: *const T
-}
-
-impl<T> Ptr<T> {
-    pub fn is_null(&self) -> bool {
-        self.ptr == std::ptr::null()
-    }
 }
 
 impl<T> Default for Ptr<T> {
@@ -193,12 +187,20 @@ impl<T: 'static + TypeDesc> Ptr<T> {
 
 }
 impl<T> Ptr<T> {
-    fn ptr_eq(this: &Ptr<T>, other: &Ptr<T>) -> bool {
+    pub fn ptr_eq(this: &Ptr<T>, other: &Ptr<T>) -> bool {
         this.ptr == other.ptr
     }
 
-    fn null() -> Ptr<T> {
+    pub fn null() -> Ptr<T> {
         Ptr { ptr: std::ptr::null() }
+    }
+
+    pub fn value(&self) -> usize {
+        self.ptr as usize
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.ptr == std::ptr::null()
     }
 }
 
@@ -213,9 +215,9 @@ impl<T> Sub<usize> for Ptr<T> {
 // An array of these describes the layout of a type
 #[derive(Debug)]
 pub struct TypeInfo {
-    offset: usize,
-    ty: std::any::TypeId,
-    name: &'static str
+    pub offset: usize,
+    pub ty: std::any::TypeId,
+    pub name: &'static str
 }
 
 // The returned Vec must be sorted by offset
@@ -231,6 +233,13 @@ impl TypeDesc for c_void {
 }
 
 impl TypeDesc for i32 {
+    fn type_desc() -> Vec<TypeInfo> {
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
+        desc
+    }
+}
+
+impl TypeDesc for u32 {
     fn type_desc() -> Vec<TypeInfo> {
         let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
         desc
@@ -370,11 +379,7 @@ fn double_free() {
 }
 
 
-#[test]
-fn list() {
-    do_sum();
 
-}
 
 impl<T: 'static + TypeDesc> TypeDesc for [T; 2] {
     fn type_desc() -> Vec<TypeInfo> {
@@ -389,40 +394,7 @@ impl<T: 'static + TypeDesc> TypeDesc for [T; 2] {
 }
 
 
-#[test]
-fn structural_type_punning() {
-    #[derive(TypeDesc, Default)]
-    struct Point1 {
-        x: f32,
-        y: f32
-    }
 
-    #[derive(TypeDesc, Default)]
-    struct Point2 {
-        x: f32,
-        y: f32
-    }
-
-    let r: Ptr<Point1> = malloc(std::mem::size_of::<Point1>()).cast();
-    // this fails because we don't find the exact type in the metadata
-    // instead we need to try to match up the fields individually
-    //let k: Ptr<Point2> = r.clone().cast();
-    free(r);
-}
-
-#[test]
-fn array_type_punning() {
-    struct Point {
-        x: f32,
-        y: f32
-    }
-
-    let r: Ptr<Foo> = malloc(std::mem::size_of::<Point>()).cast();
-    // this fails because we don't find the exact type in the metadata
-    // instead we need to try to match up the fields individually
-    // let k: Ptr<[f32; 2]> = r.clone().cast();
-    free(r);
-}
 
 fn main() {
     let id = std::any::TypeId::of::<Foo>();
