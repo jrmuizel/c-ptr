@@ -75,6 +75,29 @@ pub struct Ptr<T> {
     ptr: *const T
 }
 
+impl<T> Ptr<T> {
+
+    pub fn ptr_eq(this: &Ptr<T>, other: &Ptr<T>) -> bool {
+        this.ptr == other.ptr
+    }
+
+    pub fn null() -> Ptr<T> {
+        Ptr { ptr: std::ptr::null() }
+    }
+
+    pub fn value(&self) -> usize {
+        self.ptr as usize
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.ptr == std::ptr::null()
+    }
+
+    pub fn into_void(self) -> Ptr<c_void> {
+        Ptr { ptr: self.ptr as *const c_void }
+    }
+}
+
 impl<T> Default for Ptr<T> {
     fn default() -> Self {
         Self { ptr: std::ptr::null() }
@@ -131,6 +154,7 @@ impl<T> Deref for Ptr<T> {
 }
 
 impl<T: 'static + TypeDesc> Ptr<T> {
+
     pub fn cast<U: 'static + TypeDesc + Default>(self) -> Ptr<U> {
         dbg!(self.ptr);
         let mut guard = METADATA_STORE.data.lock().unwrap();
@@ -153,7 +177,7 @@ impl<T: 'static + TypeDesc> Ptr<T> {
         std::mem::forget(self);
         return ptr;
     }
-    pub fn new(ptr: &T) -> Ptr<T> {
+    pub fn from_ref(ptr: &T) -> Ptr<T> {
         dbg!(std::any::type_name::<T>());
         let mut md = METADATA_STORE.data.lock().unwrap();
         dbg!(ptr as *const _);
@@ -186,21 +210,12 @@ impl<T: 'static + TypeDesc> Ptr<T> {
     }
 
 }
-impl<T> Ptr<T> {
-    pub fn ptr_eq(this: &Ptr<T>, other: &Ptr<T>) -> bool {
-        this.ptr == other.ptr
-    }
 
-    pub fn null() -> Ptr<T> {
-        Ptr { ptr: std::ptr::null() }
-    }
-
-    pub fn value(&self) -> usize {
-        self.ptr as usize
-    }
-
-    pub fn is_null(&self) -> bool {
-        self.ptr == std::ptr::null()
+impl<T: 'static + TypeDesc + Default> Ptr<T> {
+    pub fn new(value: T) -> Ptr<T> {
+        let ptr = malloc(std::mem::size_of::<T>()).cast();
+        unsafe { std::ptr::write(ptr.ptr as *mut T, value); }
+        ptr
     }
 }
 
@@ -346,7 +361,7 @@ fn basic() {
 
     assert_eq!(r.y.get(), 0);
 
-    let s: Ptr<Cell<i32>> = Ptr::new(&r.y);
+    let s: Ptr<Cell<i32>> = Ptr::from_ref(&r.y);
     s.set(3);
 
     assert_eq!(r.x.get(), 4);
@@ -402,7 +417,7 @@ fn main() {
     r.x.set(5);
     let m: Ptr<Cell<i32>> = r.clone().cast();
     m.set(4);
-    let s: Ptr<Cell<i32>> = Ptr::new(&r.y);
+    let s: Ptr<Cell<i32>> = Ptr::from_ref(&r.y);
     s.set(3);
     println!("Hello, world! {:?} {}", r.x.get(), r.y.get());
 
