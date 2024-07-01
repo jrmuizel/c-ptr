@@ -435,6 +435,10 @@ impl<T: 'static + TypeDesc> TypeDesc for [T; 2] {
     }
 }
 
+
+/**
+A convenience wrapper around Cell<Ptr<T>> that implements get and allows cloning
+*/
 pub struct PtrCell<T> {
     value: Cell<Ptr<T>>
 }
@@ -452,12 +456,28 @@ impl<T: Default> PtrCell<T> {
     }
 }
 
+impl<T> Default for PtrCell<T> {
+    fn default() -> Self {
+        PtrCell { value: Cell::new(Ptr::null()) }
+    }
+}
+
 impl<T> Clone for PtrCell<T> {
     fn clone(&self) -> Self {
         let t = self.value.take();
         let t2 = t.clone();
         self.value.set(t);
         PtrCell { value: Cell::new(t2) }
+    }
+}
+
+impl<T: 'static> TypeDesc for PtrCell<T> {
+    fn type_desc() -> Vec<TypeInfo> {
+        dbg!(std::any::type_name::<Self>());
+        let target_type = std::any::TypeId::of::<Self>();
+        dbg!(target_type);
+        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()},
+        ]
     }
 }
 

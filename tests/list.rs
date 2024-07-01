@@ -26,11 +26,11 @@ use std::cell::Cell;
 
 use memoffset::offset_of;
 
-use c_ptr::{Ptr, TypeDesc, TypeInfo, malloc, free};
+use c_ptr::{free, malloc, Ptr, PtrCell, TypeDesc, TypeInfo};
 #[derive(Default, TypeDesc)]
 struct list_head {
-    prev: Cell<Ptr<list_head>>,
-    next: Cell<Ptr<list_head>> 
+    prev: PtrCell<list_head>,
+    next: PtrCell<list_head>
 }
 
 fn init_list_head(head: Ptr<list_head>) {
@@ -53,30 +53,30 @@ fn cell_clone<T: Default + Clone>(target: &Cell<T>) -> T {
 }
 
 fn list_add(el: Ptr<list_head>, head: Ptr<list_head>) {
-    __list_add(el, head.clone(), cell_clone(&head.next));
+    __list_add(el, head.clone(), head.next.get());
 }
 
 fn list_add_tail(el: Ptr<list_head>, head: Ptr<list_head>) {
-    __list_add(el, cell_clone(&head.prev), head.clone());
+    __list_add(el, head.prev.get(), head.clone());
 }
 
 fn list_del(el: Ptr<list_head>) {
-    let prev = cell_clone(&el.prev);
-    let next = cell_clone(&el.next);
+    let prev = el.prev.get();
+    let next = el.next.get();
     prev.next.set(next.clone());
     next.prev.set(prev);
-    el.prev.take();
-    el.next.take();
+    el.prev.set(Ptr::null());
+    el.next.set(Ptr::null());
 }
 
 fn list_empty(el: Ptr<list_head>) -> bool {
-    Ptr::ptr_eq(&cell_clone(&el.next), &el)
+    Ptr::ptr_eq(&el.next.get(), &el)
 }
 
 fn iterate(head: Ptr<list_head>) {
-    let mut el = cell_clone(&head.next);
+    let mut el = head.next.get();
     while !Ptr::ptr_eq(&el, &head) {
-        el = cell_clone(&head.next);
+        el = head.next.get();
     }
 
 }
@@ -155,11 +155,11 @@ pub fn do_sum() {
 
 fn iterate_foo(head: Ptr<list_head>) -> i32 {
     let mut sum = 0;
-    let mut el = cell_clone(&head.next);
+    let mut el = head.next.get();
     while !Ptr::ptr_eq(&el, &head) {
         let f = list_entry!(el, Foo, link);
         sum += f.x.get();
-        el = cell_clone(&el.next);
+        el = el.next.get();
     }
     sum
 }
