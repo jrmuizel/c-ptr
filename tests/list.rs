@@ -132,19 +132,19 @@ pub fn do_sum() {
 
     f.x.set(1);
     dbg!(memoffset::offset_of!(Foo, link));
-    let el = Ptr::new(&f.link);
+    let el = Ptr::from_ref(&f.link);
     list_add(el, list.clone()); 
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
     println!("malloc {:?}", f.value());
     f.x.set(5);
-    list_add(Ptr::new(&f.link), list.clone());
+    list_add(Ptr::from_ref(&f.link), list.clone());
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
     println!("malloc {:?}", f.value());
 
     f.x.set(9);
-    list_add(Ptr::new(&f.link), list.clone());
+    list_add(Ptr::from_ref(&f.link), list.clone());
 
     let result = iterate_foo(list.clone());
     assert_eq!(result, 15);

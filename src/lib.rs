@@ -1,5 +1,5 @@
 
-use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::c_void, ops::{Deref, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
+use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{Deref, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
 
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
@@ -95,6 +95,10 @@ impl<T> Ptr<T> {
 
     pub fn into_void(self) -> Ptr<c_void> {
         Ptr { ptr: self.ptr as *const c_void }
+    }
+
+    pub fn offset(self, count: isize) -> Ptr<T> {
+        Ptr { ptr: self.ptr.wrapping_offset(count) }
     }
 }
 
@@ -247,6 +251,21 @@ impl TypeDesc for c_void {
     }
 }
 
+// macro to implement TypeDesc
+macro_rules! impl_type_desc {
+    ($($t:ty),*) => {
+        $(
+            impl TypeDesc for $t {
+                fn type_desc() -> Vec<TypeInfo> {
+                    vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}]
+                }
+            }
+        )*
+    };
+}
+
+impl_type_desc!(i8);
+
 impl TypeDesc for i32 {
     fn type_desc() -> Vec<TypeInfo> {
         let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()}];
@@ -331,6 +350,14 @@ pub fn malloc(size: usize) -> Ptr<c_void> {
     ptr
 }
 
+pub fn memset(ptr: Ptr<c_void>, value: c_int, size: usize) {
+    panic!();
+}
+
+pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
+    panic!();
+}
+
 pub fn free<T>(addr: Ptr<T>) {
     let mut guard = METADATA_STORE.data.lock().unwrap();
     let (base, md) = METADATA_STORE.get(addr.ptr as usize, &mut guard).unwrap();
@@ -408,6 +435,31 @@ impl<T: 'static + TypeDesc> TypeDesc for [T; 2] {
     }
 }
 
+pub struct PtrCell<T> {
+    value: Cell<Ptr<T>>
+}
+
+impl<T: Default> PtrCell<T> {
+    pub fn set(&self, value: Ptr<T>) {
+        self.value.set(value);
+    }
+
+    pub fn get(&self) -> Ptr<T> {
+        let t = self.value.take();
+        let t2 = t.clone();
+        self.value.set(t);
+        t2
+    }
+}
+
+impl<T> Clone for PtrCell<T> {
+    fn clone(&self) -> Self {
+        let t = self.value.take();
+        let t2 = t.clone();
+        self.value.set(t);
+        PtrCell { value: Cell::new(t2) }
+    }
+}
 
 
 
