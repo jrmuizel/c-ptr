@@ -443,7 +443,7 @@ pub struct PtrCell<T> {
     value: Cell<Ptr<T>>
 }
 
-impl<T: Default> PtrCell<T> {
+impl<T> PtrCell<T> {
     pub fn set(&self, value: Ptr<T>) {
         self.value.set(value);
     }
