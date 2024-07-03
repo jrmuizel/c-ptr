@@ -1,5 +1,5 @@
 
-use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{Deref, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
+use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{Deref, Index, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
 
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
@@ -102,6 +102,15 @@ impl<T> Ptr<T> {
     }
 }
 
+impl<T> Index<isize> for Ptr<T> {
+    type Output = T;
+
+    fn index(&self, index: isize) -> &Self::Output {
+        let ptr = self.ptr.wrapping_offset(index);
+        unsafe { raw_deref(ptr) }
+    }
+}
+
 impl<T> Default for Ptr<T> {
     fn default() -> Self {
         Self { ptr: std::ptr::null() }
@@ -142,18 +151,24 @@ impl<T> Drop for Ptr<T> {
     }
 }
 
+// This is likely not safe because of the generic liftetime
+unsafe fn raw_deref<'a, T>(ptr: *const T) -> &'a T {
+    assert_ne!(ptr, std::ptr::null());
+    let mut md = METADATA_STORE.data.lock().unwrap();
+    let (base, md) = METADATA_STORE.get(ptr as usize, &mut md).unwrap();
+    if !md.valid {
+        panic!();
+    }
+    unsafe { &*ptr }
+}
+
+
 impl<T> Deref for Ptr<T> {
 
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        assert_ne!(self.ptr, std::ptr::null());
-        let mut md = METADATA_STORE.data.lock().unwrap();
-        let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut md).unwrap();
-        if !md.valid {
-            panic!();
-        }
-        unsafe { &*self.ptr }
+        unsafe { raw_deref(self.ptr) }
     }
 }
 
@@ -454,6 +469,14 @@ impl<T> PtrCell<T> {
         self.value.set(t);
         t2
     }
+
+    pub fn null() -> Self {
+        PtrCell { value: Cell::new(Ptr::null()) }
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.get().is_null()
+    }
 }
 
 impl<T> Default for PtrCell<T> {
@@ -471,6 +494,36 @@ impl<T> Clone for PtrCell<T> {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct U32 {
+    value: Cell<u32>
+}
+
+impl U32 {
+    pub fn new(value: u32) -> Self {
+        U32 { value: Cell::new(value) }
+    }
+
+    pub fn set(&self, value: u32) {
+        self.value.set(value);
+    }
+
+    pub fn get(&self) -> u32 {
+        self.value.get()
+    }
+
+    pub fn wrapping_sub(&self, value: u32) {
+        self.value.set(self.value.get().wrapping_sub(value));
+    }
+
+    pub fn wrapping_add(&self, value: u32) {
+        self.value.set(self.value.get().wrapping_add(value));
+    }
+}
+
+impl_type_desc!(U32);
+
+
 impl<T: 'static> TypeDesc for PtrCell<T> {
     fn type_desc() -> Vec<TypeInfo> {
         dbg!(std::any::type_name::<Self>());
@@ -480,8 +533,6 @@ impl<T: 'static> TypeDesc for PtrCell<T> {
         ]
     }
 }
-
-
 
 fn main() {
     let id = std::any::TypeId::of::<Foo>();
