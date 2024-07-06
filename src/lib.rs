@@ -371,8 +371,28 @@ pub fn malloc(size: usize) -> Ptr<c_void> {
     ptr
 }
 
-pub fn memset<T>(ptr: Ptr<T>, value: c_int, size: usize) {
-    panic!();
+pub trait Reset {
+    fn reset(&self);
+}
+
+impl<T: Reset> Reset for PtrCell<T> {
+    fn reset(&self) {
+        self.value.set(Ptr::null());
+    }
+}
+
+pub fn memset<T: Reset + TypeDesc + 'static>(ptr: Ptr<T>, value: c_int, size: usize) {
+    assert_eq!(value, 0);
+    if size == std::mem::size_of::<T>() {
+        panic!();
+    } else if size % std::mem::size_of::<T>() == 0 {
+        let ptr = ptr;
+        for i in 0..size / std::mem::size_of::<T>() {
+            ptr[i as isize].reset();
+        }
+    } else {
+        panic!();
+    }
 }
 
 pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
@@ -380,6 +400,9 @@ pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
 }
 
 pub fn free<T>(addr: Ptr<T>) {
+    if addr.is_null() {
+        return;
+    }
     let mut guard = METADATA_STORE.data.lock().unwrap();
     let (base, md) = METADATA_STORE.get(addr.ptr as usize, &mut guard).unwrap();
     let was_valid = md.valid;
@@ -602,6 +625,12 @@ fn clone_null() {
     let y = x.clone();
     assert!(x.is_null());
     assert!(y.is_null());
+}
+
+#[test]
+fn free_null() {
+    let p = Ptr::null();
+    free(p);
 }
 
 fn main() {
