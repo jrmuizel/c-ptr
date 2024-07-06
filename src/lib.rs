@@ -191,25 +191,17 @@ impl<T: 'static + TypeDesc> Ptr<T> {
         } else if md.matches_type::<U>(offset) {
         } else {
             // drop the mutex guard so we don't poison it
+            let msg = format!("Type mismatch for offset: {}, found: {}", offset, md.type_info[0].name);
             drop(guard);
-            panic!("type mismatch")
+            panic!("{}", msg);
+
         }
         let ptr = Ptr { ptr: self.ptr as *const U };
         std::mem::forget(self);
         return ptr;
     }
     pub fn from_ref(ptr: &T) -> Ptr<T> {
-        dbg!(std::any::type_name::<T>());
-        let mut md = METADATA_STORE.data.lock().unwrap();
-        dbg!(ptr as *const _);
-        let (base, md) = METADATA_STORE.get(ptr as *const _ as usize, &mut md).unwrap();
-        let offset = ptr as *const _ as usize - base;
-        md.inc_ref();
-        assert!(!md.type_info.is_empty());
-        if md.matches_type::<T>(offset) {
-            return Ptr { ptr }
-        }
-        panic!()
+        Self::from_usize(ptr as *const T as usize)
     }
     pub fn from_usize(ptr: usize) -> Ptr<T> {
         let ptr = ptr as *const T;
