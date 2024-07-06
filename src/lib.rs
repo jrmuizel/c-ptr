@@ -125,8 +125,11 @@ impl<T> Clone for Rc<T> {
 
 impl<T> Clone for Ptr<T> {
     fn clone(&self) -> Self {
+        if self.is_null() {
+            return Self::null();
+        }
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).unwrap();
+        let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).expect("cloning pointer without metadata");
         md.inc_ref();
         Self { ptr: self.ptr }
     }
@@ -591,6 +594,14 @@ impl<T: 'static> TypeDesc for PtrCell<T> {
         vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), name: std::any::type_name::<Self>()},
         ]
     }
+}
+
+#[test]
+fn clone_null() {
+    let x = PtrCell::<i32>::null();
+    let y = x.clone();
+    assert!(x.is_null());
+    assert!(y.is_null());
 }
 
 fn main() {
