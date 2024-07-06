@@ -371,7 +371,7 @@ pub fn malloc(size: usize) -> Ptr<c_void> {
     ptr
 }
 
-pub fn memset(ptr: Ptr<c_void>, value: c_int, size: usize) {
+pub fn memset<T>(ptr: Ptr<T>, value: c_int, size: usize) {
     panic!();
 }
 
