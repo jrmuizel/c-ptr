@@ -1,5 +1,5 @@
 
-use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{Deref, Index, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
+use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{AddAssign, Deref, Index, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
 
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
@@ -94,11 +94,10 @@ impl<T> Ptr<T> {
     }
 
     pub fn into_void(self) -> Ptr<c_void> {
-        Ptr { ptr: self.ptr as *const c_void }
-    }
-
-    pub fn offset(self, count: isize) -> Ptr<T> {
-        Ptr { ptr: self.ptr.wrapping_offset(count) }
+        let ptr = self.ptr;
+        // we don't need to change the refcnt.
+        std::mem::forget(self);
+        Ptr { ptr: ptr as *const c_void }
     }
 }
 
@@ -228,6 +227,10 @@ impl<T: 'static + TypeDesc> Ptr<T> {
         panic!();
     }
 
+    pub fn offset(self, count: isize) -> Ptr<T> {
+        Ptr::from_usize(self.ptr.wrapping_offset(count) as usize)
+    }
+
 }
 
 impl<T: 'static + TypeDesc + Default> Ptr<T> {
@@ -238,11 +241,11 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
     }
 }
 
-impl<T> Sub<usize> for Ptr<T> {
+impl<T: 'static + TypeDesc> Sub<usize> for Ptr<T> {
     type Output = Ptr<T>;
 
     fn sub(self, rhs: usize) -> Self::Output {
-        Ptr { ptr: self.ptr.wrapping_offset(-(rhs as isize)) }
+        Ptr::from_usize(self.ptr.wrapping_offset(-(rhs as isize)) as usize)
     }
 }
 
@@ -523,6 +526,62 @@ impl U32 {
 
 impl_type_desc!(U32);
 
+
+#[derive(Clone, Debug, Default)]
+pub struct I32 {
+    value: Cell<i32>
+}
+
+impl I32 {
+    pub fn new(value: i32) -> Self {
+        I32 { value: Cell::new(value) }
+    }
+
+    pub fn set(&self, value: i32) {
+        self.value.set(value);
+    }
+
+    pub fn get(&self) -> i32 {
+        self.value.get()
+    }
+
+    pub fn wrapping_sub(&self, value: i32) {
+        self.value.set(self.value.get().wrapping_sub(value));
+    }
+
+    pub fn wrapping_add(&self, value: i32) {
+        self.value.set(self.value.get().wrapping_add(value));
+    }
+    pub fn add_assign(&self, rhs: i32) {
+        self.wrapping_add(rhs);
+    }
+}
+
+impl_type_desc!(I32);
+
+impl PartialEq for I32 {
+    fn eq(&self, other: &Self) -> bool {
+        self.value.get() == other.value.get()
+    }
+}
+
+impl PartialOrd for I32 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.value.get().partial_cmp(&other.value.get())
+    }
+}
+
+impl PartialEq<i32> for I32 {
+    fn eq(&self, other: &i32) -> bool {
+        self.value.get() == *other
+    }
+}
+
+impl PartialOrd<i32> for I32 {
+    fn partial_cmp(&self, other: &i32) -> Option<std::cmp::Ordering> {
+        self.value.get().partial_cmp(&other)
+    }
+}
 
 impl<T: 'static> TypeDesc for PtrCell<T> {
     fn type_desc() -> Vec<TypeInfo> {

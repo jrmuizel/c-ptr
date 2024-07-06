@@ -2,6 +2,21 @@ use proc_macro::TokenStream;
 use quote::{quote, format_ident};
 use syn::{parse_macro_input, DeriveInput, Data, Fields, Type};
 
+fn is_option_fn_ptr(ty: &Type) -> bool {
+    if let Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Option" {
+                if let syn::PathArguments::AngleBracketed(ref args) = segment.arguments {
+                    if let Some(syn::GenericArgument::Type(Type::BareFn(_))) = args.args.first() {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 #[proc_macro_derive(TypeDesc)]
 pub fn derive_type_desc(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -20,14 +35,26 @@ pub fn derive_type_desc(input: TokenStream) -> TokenStream {
     let field_descs = fields.iter().map(|field| {
         let field_name = &field.ident;
         let field_type = &field.ty;
-        
-        quote! {
-            for item in <#field_type>::type_desc() {
+
+        if is_option_fn_ptr(field_type) {
+            // We can't derive TypeDesc for Option<fn()>, so we output the type info for
+            // that field as a single item with the type of the Option itself.
+            quote! {
                 desc.push(::c_ptr::TypeInfo {
-                    offset: std::mem::offset_of!(Self, #field_name) + item.offset,
-                    ty: item.ty,
-                    name: item.name,
+                    offset: std::mem::offset_of!(Self, #field_name),
+                    ty: std::any::TypeId::of::<#field_type>(),
+                    name: std::any::type_name::<#field_type>(),
                 });
+            }
+        } else {
+            quote! {
+                for item in <#field_type>::type_desc() {
+                    desc.push(::c_ptr::TypeInfo {
+                        offset: std::mem::offset_of!(Self, #field_name) + item.offset,
+                        ty: item.ty,
+                        name: item.name,
+                    });
+                }
             }
         }
     });
