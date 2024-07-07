@@ -43,6 +43,7 @@ pub fn derive_type_desc(input: TokenStream) -> TokenStream {
                 desc.push(::c_ptr::TypeInfo {
                     offset: std::mem::offset_of!(Self, #field_name),
                     ty: std::any::TypeId::of::<#field_type>(),
+                    size: std::mem::size_of::<#field_type>(),
                     name: std::any::type_name::<#field_type>(),
                 });
             }
@@ -52,6 +53,7 @@ pub fn derive_type_desc(input: TokenStream) -> TokenStream {
                     desc.push(::c_ptr::TypeInfo {
                         offset: std::mem::offset_of!(Self, #field_name) + item.offset,
                         ty: item.ty,
+                        size: std::mem::size_of::<#field_type>(),
                         name: item.name,
                     });
                 }
@@ -65,6 +67,7 @@ pub fn derive_type_desc(input: TokenStream) -> TokenStream {
                 let mut desc = vec![::c_ptr::TypeInfo {
                     offset: 0,
                     ty: std::any::TypeId::of::<Self>(),
+                    size: std::mem::size_of::<Self>(),
                     name: std::any::type_name::<Self>(),
                 }];
 
