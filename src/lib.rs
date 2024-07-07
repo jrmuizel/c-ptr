@@ -183,14 +183,16 @@ impl<T> Clone for Ptr<T> {
 
 impl<T> Drop for Ptr<T> {
     fn drop(&mut self) {
+        eprintln!("drop({:?})", self.ptr);
         if self.ptr == std::ptr::null() {
             return;
         }
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        dbg!(self.ptr);
         let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).expect("pointer should have metadata");
         md.cnt.set(md.cnt.get() - 1);
+        eprintln!("dropping {:?} to {}", self.ptr, md.cnt.get());
         if md.cnt.get() == 0 {
+            eprintln!("dealloc {:?}", self.ptr);
             let valid = md.valid;
             unsafe { std::alloc::dealloc(self.ptr as *mut u8, Layout::from_size_align(md.size, MAX_ALIGN).unwrap()) }
             METADATA_STORE.remove(self.ptr as usize, &mut guard);
@@ -426,6 +428,7 @@ pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
 }
 
 pub fn free<T>(addr: Ptr<T>) {
+    eprintln!("free({:?}: Ptr<{}>)", addr.ptr, std::any::type_name::<T>());
     if addr.is_null() {
         return;
     }
@@ -433,7 +436,11 @@ pub fn free<T>(addr: Ptr<T>) {
     let (base, md) = METADATA_STORE.get(addr.ptr as usize, &mut guard).unwrap();
     let was_valid = md.valid;
     md.valid = false;
+    eprintln!("done freeing");
     drop(guard);
+    if was_valid {
+        unsafe { std::ptr::drop_in_place(addr.ptr as *mut T); }
+    }
     assert!(was_valid, "this memory has already been freed");
     assert_eq!(base, addr.ptr as usize);
 }

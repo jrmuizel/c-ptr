@@ -126,9 +126,11 @@ pub fn do_sum() {
 
     let list: Ptr<list_head> = malloc(std::mem::size_of::<list_head>()).cast();
     init_list_head(list.clone());
+    let mut nodes = Vec::new();
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
     println!("malloc {:?}", f.value());
+    nodes.push(f.clone());
 
     f.x.set(1);
     dbg!(memoffset::offset_of!(Foo, link));
@@ -137,18 +139,25 @@ pub fn do_sum() {
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
     println!("malloc {:?}", f.value());
+    nodes.push(f.clone());
     f.x.set(5);
     list_add(Ptr::from_ref(&f.link), list.clone());
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
     println!("malloc {:?}", f.value());
+    nodes.push(f.clone());
+
 
     f.x.set(9);
     list_add(Ptr::from_ref(&f.link), list.clone());
 
     let result = iterate_foo(list.clone());
     assert_eq!(result, 15);
+
     free(list);
+    for n in nodes {
+        free(n);
+    }
 
 }
 
