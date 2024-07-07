@@ -135,7 +135,6 @@ impl<T: Default + TypeDesc + 'static> Index<isize> for Ptr<T> {
         dbg!(ptr as *const _);
         let (base, md) = METADATA_STORE.get(ptr as *const _ as usize, &mut guard).unwrap();
         let offset = ptr as *const _ as usize - base;
-        md.inc_ref();
         assert!(!md.type_info.is_empty());
 
         match md.matches_type::<T>(offset) {
