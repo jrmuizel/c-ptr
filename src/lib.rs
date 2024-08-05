@@ -210,10 +210,16 @@ impl<T> Drop for Ptr<T> {
 // This is likely not safe because of the generic liftetime
 unsafe fn raw_deref<'a, T>(ptr: *const T) -> &'a T {
     assert_ne!(ptr, std::ptr::null());
-    let mut md = METADATA_STORE.data.lock().unwrap();
-    let (base, md) = METADATA_STORE.get(ptr as usize, &mut md).unwrap();
+    let mut guard = METADATA_STORE.data.lock().unwrap();
+    let (base, md) = METADATA_STORE.get(ptr as usize, &mut guard).unwrap();
     if !md.valid {
-        panic!();
+        drop(guard);
+        panic!("deref of freed memory");
+    }
+    let offset = ptr as *const _ as usize - base;
+    if offset == md.size {
+        drop(guard);
+        panic!("deref at end of object");
     }
     unsafe { &*ptr }
 }
@@ -263,6 +269,11 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
         let (base, md) = METADATA_STORE.get(ptr as *const _ as usize, &mut guard).unwrap();
         let offset = ptr as *const _ as usize - base;
         md.inc_ref();
+        if offset == md.size {
+            // this is a pointer to the end of the object
+            // we don't want to intialize it
+            return Ptr { ptr }
+        }
         assert!(!md.type_info.is_empty());
         match md.matches_type::<T>(offset) {
             MetadataState::Matches => {},
@@ -735,6 +746,29 @@ fn free_using_offset() {
     drop(p2);
 }
 
+#[test]
+fn end_ptr() {
+    let start: Ptr<I32> = malloc(std::mem::size_of::<[I32; 2]>()).cast();
+    let end: Ptr<I32> = start.clone().offset(2);
+    drop(end);
+    free(start);
+}
+
+#[test]
+#[should_panic]
+fn end_ptr_deref() {
+    struct AutoPtr {
+        p: Ptr<I32>
+    }
+    impl Drop for AutoPtr {
+        fn drop(&mut self) {
+            free(self.p.clone());
+        }
+    }
+    let start = AutoPtr { p: malloc(std::mem::size_of::<[I32; 2]>()).cast() };
+    let end: Ptr<I32> = start.p.clone().offset(2);
+    end.set(3);
+}
 
 #[test]
 fn strlen_test() {
