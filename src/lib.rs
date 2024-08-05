@@ -725,6 +725,16 @@ fn free_void() {
     free(k);
 }
 
+#[test]
+fn free_using_offset() {
+    let p: Ptr<I32> = malloc(std::mem::size_of::<[I32; 2]>()).cast();
+    let p2 = p.clone().offset(1);
+    free(p);
+    // the last reference to the memory is offset. We want to make sure that
+    // we free base pointer and not the offset one
+    drop(p2);
+}
+
 
 #[test]
 fn strlen_test() {
