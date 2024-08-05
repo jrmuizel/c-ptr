@@ -200,8 +200,8 @@ impl<T> Drop for Ptr<T> {
         if md.cnt.get() == 0 {
             eprintln!("dealloc {:?}", self.ptr);
             let valid = md.valid;
-            unsafe { std::alloc::dealloc(self.ptr as *mut u8, Layout::from_size_align(md.size, MAX_ALIGN).unwrap()) }
-            METADATA_STORE.remove(self.ptr as usize, &mut guard);
+            unsafe { std::alloc::dealloc(base as *mut u8, Layout::from_size_align(md.size, MAX_ALIGN).unwrap()) }
+            METADATA_STORE.remove(base as usize, &mut guard);
             assert!(!valid, "contents would've leaked");
         }
     }
@@ -295,6 +295,20 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
         let ptr = malloc(std::mem::size_of::<T>()).cast();
         unsafe { std::ptr::write(ptr.ptr as *mut T, value); }
         ptr
+    }
+}
+
+impl Ptr<Cell<core::ffi::c_char>> {
+    pub fn new_string(str: &str) -> Self {
+        let mut ptr: Ptr<Cell<core::ffi::c_char>> = malloc(str.len() + 1).cast();
+        let start = ptr.clone();
+        for (i, c) in str.bytes().enumerate() {
+            ptr.set(c as i8);
+            dbg!(i);
+            ptr = ptr.offset(1);
+        }
+        ptr.set(0);
+        start
     }
 }
 
@@ -441,6 +455,15 @@ pub fn memset<T: Reset + TypeDesc + 'static + Default> (ptr: Ptr<T>, value: c_in
 
 pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
     panic!();
+}
+
+pub fn strlen(mut str: Ptr<Cell<core::ffi::c_char>>) -> core::ffi::c_ulong {
+        let mut count = 0;
+        while str.get() != 0 { // Loop until null terminator is reached
+          count += 1;
+          str = str.offset(1);
+        }
+        return count;
 }
 
 pub fn free<T>(addr: Ptr<T>) {
@@ -702,6 +725,13 @@ fn free_void() {
     free(k);
 }
 
+
+#[test]
+fn strlen_test() {
+    let s = Ptr::new_string("hello");
+    assert_eq!(strlen(s.clone().cast()), 5);
+    free(s);
+}
 
 fn main() {
     let id = std::any::TypeId::of::<Foo>();
