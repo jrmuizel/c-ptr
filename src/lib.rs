@@ -296,6 +296,7 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
     }
 
     pub fn offset(self, count: isize) -> Ptr<T> {
+        // we could avoid ref count inc/dec if we specialized this
         Ptr::from_void(self.ptr.wrapping_offset(count) as *const c_void)
     }
 
