@@ -1,5 +1,5 @@
 
-use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{Deref, Index, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
+use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{Deref, Index, Sub}, ptr::NonNull, rc::Rc, sync::{Mutex, MutexGuard}};
 
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
@@ -89,7 +89,7 @@ impl Metadata {
     } 
 }
 
-struct Rc<T> {
+struct FatPtr<T> {
     ptr: NonNull<T>,
     metadata: NonNull<Metadata>
 }
@@ -168,10 +168,10 @@ impl<T> Default for Ptr<T> {
     }
 }
 
-impl<T> Clone for Rc<T> {
+impl<T> Clone for FatPtr<T> {
     fn clone(&self) -> Self {
         unsafe { self.metadata.as_ref().inc_ref() };
-        Rc { ptr: self.ptr, metadata: self.metadata }
+        FatPtr { ptr: self.ptr, metadata: self.metadata }
     }
 }
 
@@ -266,7 +266,10 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
         dbg!(std::any::type_name::<T>());
         let mut guard = METADATA_STORE.data.lock().unwrap();
         dbg!(ptr as *const _);
-        let (base, md) = METADATA_STORE.get(ptr as *const _, &mut guard).unwrap();
+        let Some((base, md)) = METADATA_STORE.get(ptr as *const _, &mut guard) else {
+            drop(guard);
+            panic!("missing metadata for {:?}", ptr);
+        };
         let offset = ptr as *const _ as usize - base as usize;
         md.inc_ref();
         if offset == md.size {
@@ -296,6 +299,9 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
     }
 
     pub fn offset(self, count: isize) -> Ptr<T> {
+        if self.is_null() {
+            panic!("offset of null pointer");
+        }
         // we could avoid ref count inc/dec if we specialized this
         Ptr::from_void(self.ptr.wrapping_offset(count) as *const c_void)
     }
@@ -455,6 +461,12 @@ impl<T: Reset> Reset for PtrCell<T> {
     }
 }
 
+impl<T: Reset> Reset for RcCell<T> {
+    fn reset(&self) {
+        self.set(Default::default());
+    }
+}
+
 pub fn memset<T: Reset + TypeDesc + 'static + Default> (ptr: Ptr<T>, value: c_int, size: usize) {
     assert_eq!(value, 0);
     if size == std::mem::size_of::<T>() {
@@ -611,6 +623,48 @@ impl<T> Clone for PtrCell<T> {
     }
 }
 
+
+#[derive(Default)]
+pub struct RcCell<T> {
+    value: Cell<Option<Rc<T>>>
+}
+impl<T> RcCell<T> {
+    pub fn set(&self, value: Option<Rc<T>>) {
+        self.value.set(value);
+    }
+
+    pub fn get(&self) -> Option<Rc<T>> {
+        let t = self.value.take();
+        let t2 = t.clone();
+        self.value.set(t);
+        t2
+    }
+
+    pub fn null() -> Self {
+        Self { value: Cell::new(None) }
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.get().is_none()
+    }
+}
+
+
+impl<T> Clone for RcCell<T> {
+    fn clone(&self) -> Self {
+        let t = self.value.take();
+        let t2 = t.clone();
+        self.value.set(t);
+        Self { value: Cell::new(t2) }
+    }
+}
+
+impl<T: TypeDesc + 'static> TypeDesc for RcCell<T> {
+    fn type_desc() -> Vec<TypeInfo> {
+        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: empty_drop, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}]
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct U32 {
     value: Cell<u32>
@@ -720,7 +774,6 @@ fn free_null() {
     let p: Ptr<i32> = Ptr::null();
     free(p);
 }
-
 
 #[test]
 fn dynamic_array() {
