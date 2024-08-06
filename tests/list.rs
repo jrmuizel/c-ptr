@@ -112,7 +112,7 @@ fn iterate(head: Ptr<list_head>) {
 
 macro_rules! list_entry {
     ($el: expr, $t: ty, $member: ident) => {
-        (Ptr::<$t>::from_usize($el.value() - memoffset::offset_of!($t, $member)))
+        (Ptr::<$t>::from_void($el.raw_untyped().wrapping_sub(memoffset::offset_of!($t, $member))))
     }
 }
 #[derive(Default, TypeDesc)]
@@ -129,7 +129,7 @@ pub fn do_sum() {
     let mut nodes = Vec::new();
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
-    println!("malloc {:?}", f.value());
+    println!("malloc {:?}", f.raw_untyped());
     nodes.push(f.clone());
 
     f.x.set(1);
@@ -138,13 +138,13 @@ pub fn do_sum() {
     list_add(el, list.clone()); 
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
-    println!("malloc {:?}", f.value());
+    println!("malloc {:?}", f.raw_untyped());
     nodes.push(f.clone());
     f.x.set(5);
     list_add(Ptr::from_ref(&f.link), list.clone());
 
     let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
-    println!("malloc {:?}", f.value());
+    println!("malloc {:?}", f.raw_untyped());
     nodes.push(f.clone());
 
 

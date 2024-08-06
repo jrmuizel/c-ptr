@@ -107,8 +107,8 @@ impl<T> Ptr<T> {
         Ptr { ptr: std::ptr::null() }
     }
 
-    pub fn value(&self) -> usize {
-        self.ptr as usize
+    pub fn raw_untyped(&self) -> *const c_void {
+        self.ptr as *const c_void 
     }
 
     pub fn is_null(&self) -> bool {
@@ -124,7 +124,7 @@ impl<T> Ptr<T> {
 
     pub fn count(&self) -> usize {
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (_, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).expect("pointer should have metadata");
+        let (_, md) = METADATA_STORE.get(self.ptr as *const c_void, &mut guard).expect("pointer should have metadata");
         md.cnt.get()
     }
 }
@@ -139,8 +139,8 @@ impl<T: Default + TypeDesc + 'static> Index<isize> for Ptr<T> {
         dbg!(std::any::type_name::<T>());
         let mut guard = METADATA_STORE.data.lock().unwrap();
         dbg!(ptr as *const _);
-        let (base, md) = METADATA_STORE.get(ptr as *const _ as usize, &mut guard).unwrap();
-        let offset = ptr as *const _ as usize - base;
+        let (base, md) = METADATA_STORE.get(ptr as *const _, &mut guard).unwrap();
+        let offset = ptr as *const _ as usize - base as usize;
         assert!(!md.type_info.is_empty());
 
         match md.matches_type::<T>(offset) {
@@ -181,7 +181,7 @@ impl<T> Clone for Ptr<T> {
             return Self::null();
         }
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).expect("cloning pointer without metadata");
+        let (base, md) = METADATA_STORE.get(self.ptr as *const _, &mut guard).expect("cloning pointer without metadata");
         md.inc_ref();
         Self { ptr: self.ptr }
     }
@@ -194,14 +194,14 @@ impl<T> Drop for Ptr<T> {
             return;
         }
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).expect("pointer should have metadata");
+        let (base, md) = METADATA_STORE.get(self.ptr as *const _, &mut guard).expect("pointer should have metadata");
         md.cnt.set(md.cnt.get() - 1);
         eprintln!("dropping {:?} to {}", self.ptr, md.cnt.get());
         if md.cnt.get() == 0 {
             eprintln!("dealloc {:?}", self.ptr);
             let valid = md.valid;
             unsafe { std::alloc::dealloc(base as *mut u8, Layout::from_size_align(md.size, MAX_ALIGN).unwrap()) }
-            METADATA_STORE.remove(base as usize, &mut guard);
+            METADATA_STORE.remove(base, &mut guard);
             assert!(!valid, "contents would've leaked");
         }
     }
@@ -211,12 +211,12 @@ impl<T> Drop for Ptr<T> {
 unsafe fn raw_deref<'a, T>(ptr: *const T) -> &'a T {
     assert_ne!(ptr, std::ptr::null());
     let mut guard = METADATA_STORE.data.lock().unwrap();
-    let (base, md) = METADATA_STORE.get(ptr as usize, &mut guard).unwrap();
+    let (base, md) = METADATA_STORE.get(ptr as *const _, &mut guard).unwrap();
     if !md.valid {
         drop(guard);
         panic!("deref of freed memory");
     }
-    let offset = ptr as *const _ as usize - base;
+    let offset = ptr as *const _ as usize - base as usize;
     if offset == md.size {
         drop(guard);
         panic!("deref at end of object");
@@ -238,8 +238,8 @@ impl<T: 'static + TypeDesc> Ptr<T> {
     pub fn cast<U: 'static + TypeDesc + Default>(self) -> Ptr<U> {
         dbg!(self.ptr);
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (base, md) = METADATA_STORE.get(self.ptr as usize, &mut guard).unwrap();
-        let offset = self.ptr as usize - base;
+        let (base, md) = METADATA_STORE.get(self.ptr as *const _, &mut guard).unwrap();
+        let offset = self.ptr as usize - base as usize;
         match md.matches_type::<U>(offset) {
             MetadataState::Matches => {},
             MetadataState::Uninit => {
@@ -259,15 +259,15 @@ impl<T: 'static + TypeDesc> Ptr<T> {
 }
 impl<T: 'static + TypeDesc + Default> Ptr<T> {
     pub fn from_ref(ptr: &T) -> Ptr<T> {
-        Self::from_usize(ptr as *const T as usize)
+        Self::from_void(ptr as *const T as *const c_void)
     }
-    pub fn from_usize(ptr: usize) -> Ptr<T> {
+    pub fn from_void(ptr: *const c_void) -> Ptr<T> {
         let ptr = ptr as *const T;
         dbg!(std::any::type_name::<T>());
         let mut guard = METADATA_STORE.data.lock().unwrap();
         dbg!(ptr as *const _);
-        let (base, md) = METADATA_STORE.get(ptr as *const _ as usize, &mut guard).unwrap();
-        let offset = ptr as *const _ as usize - base;
+        let (base, md) = METADATA_STORE.get(ptr as *const _, &mut guard).unwrap();
+        let offset = ptr as *const _ as usize - base as usize;
         md.inc_ref();
         if offset == md.size {
             // this is a pointer to the end of the object
@@ -296,7 +296,7 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
     }
 
     pub fn offset(self, count: isize) -> Ptr<T> {
-        Ptr::from_usize(self.ptr.wrapping_offset(count) as usize)
+        Ptr::from_void(self.ptr.wrapping_offset(count) as *const c_void)
     }
 
 }
@@ -327,7 +327,7 @@ impl<T: 'static + TypeDesc + Default> Sub<usize> for Ptr<T> {
     type Output = Ptr<T>;
 
     fn sub(self, rhs: usize) -> Self::Output {
-        Ptr::from_usize(self.ptr.wrapping_offset(-(rhs as isize)) as usize)
+        Ptr::from_void(self.ptr.wrapping_offset(-(rhs as isize)) as *const c_void)
     }
 }
 
@@ -397,8 +397,12 @@ impl TypeDesc for Foo {
         desc
     }
 }
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct SyncPtr(*const c_void);
 
-type PtrMap = BTreeMap<usize, Box<Metadata>>;
+unsafe impl Sync for SyncPtr {}
+unsafe impl Send for SyncPtr {}
+type PtrMap = BTreeMap<SyncPtr, Box<Metadata>>;
 
 struct MetadataStore {
     data: Lazy<Mutex<PtrMap>>
@@ -412,22 +416,22 @@ impl Drop for MetadataStore {
 }
 
 impl MetadataStore {
-    fn put(&self, addr: usize, metadata: Box<Metadata>) {
-        self.data.lock().unwrap().insert(addr, metadata);
+    fn put(&self, addr: *const c_void, metadata: Box<Metadata>) {
+        self.data.lock().unwrap().insert(SyncPtr(addr), metadata);
     }
-    fn get<'a>(&self, addr: usize, guard: &'a mut MutexGuard<PtrMap>) -> Option<(usize, &'a mut Box<Metadata>)> {
-        let x = guard.range_mut(..=addr).last();
+    fn get<'a>(&self, addr: *const c_void, guard: &'a mut MutexGuard<PtrMap>) -> Option<(*const c_void, &'a mut Box<Metadata>)> {
+        let x = guard.range_mut(..=SyncPtr(addr)).last();
         if let Some((base, md)) = x {
-            let offset = addr - base;
+            let offset = addr as usize - base.0 as usize;
             if offset > md.size {
                 return None
             }
-            return Some((*base, md))
+            return Some((base.0, md))
         }
         None
     }
-    fn remove(&self, addr: usize, guard: &mut MutexGuard<PtrMap>) {
-        guard.remove(&addr).unwrap(); 
+    fn remove(&self, addr: *const c_void, guard: &mut MutexGuard<PtrMap>) {
+        guard.remove(&SyncPtr(addr)).unwrap(); 
     }
 }
 static METADATA_STORE: MetadataStore = MetadataStore { data: Lazy::new(|| Mutex::new(BTreeMap::new())) };
@@ -436,7 +440,7 @@ const MAX_ALIGN: usize = 8;
 pub fn malloc(size: usize) -> Ptr<c_void> {
     let ptr = Ptr { ptr: unsafe { std::alloc::alloc(Layout::from_size_align(size, MAX_ALIGN).unwrap()) as *const _ as *const _ }};
     let metadata = Box::new(Metadata { size: size, cnt: Cell::new(1), valid: true, type_info: Vec::new() });
-    METADATA_STORE.put(ptr.ptr as usize, metadata);
+    METADATA_STORE.put(ptr.ptr, metadata);
     ptr
 }
 
@@ -483,7 +487,7 @@ pub fn free<T>(addr: Ptr<T>) {
         return;
     }
     let mut guard = METADATA_STORE.data.lock().unwrap();
-    let (base, md) = METADATA_STORE.get(addr.ptr as usize, &mut guard).unwrap();
+    let (base, md) = METADATA_STORE.get(addr.ptr as *const _, &mut guard).unwrap();
     let was_valid = md.valid;
     md.valid = false;
     eprintln!("done freeing");
@@ -493,7 +497,7 @@ pub fn free<T>(addr: Ptr<T>) {
         unsafe { drop_ptr(addr.ptr as *const c_void); }
     }
     assert!(was_valid, "this memory has already been freed");
-    assert_eq!(base, addr.ptr as usize);
+    assert_eq!(base, addr.ptr as *const c_void);
 }
 
 impl<T: 'static> TypeDesc for Cell<T> {
