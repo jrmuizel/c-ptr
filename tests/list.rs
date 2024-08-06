@@ -24,9 +24,7 @@
 
 use std::cell::Cell;
 
-use memoffset::offset_of;
-
-use c_ptr::{free, malloc, Ptr, PtrCell, TypeDesc, TypeInfo};
+use c_ptr::{free, malloc, Ptr, PtrCell, TypeDesc};
 #[derive(Default, TypeDesc)]
 struct list_head {
     prev: PtrCell<list_head>,
@@ -128,7 +126,7 @@ pub fn do_sum() {
     init_list_head(list.clone());
     let mut nodes = Vec::new();
 
-    let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
+    let f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
     println!("malloc {:?}", f.raw_untyped());
     nodes.push(f.clone());
 
@@ -137,13 +135,13 @@ pub fn do_sum() {
     let el = Ptr::from_ref(&f.link);
     list_add(el, list.clone()); 
 
-    let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
+    let f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
     println!("malloc {:?}", f.raw_untyped());
     nodes.push(f.clone());
     f.x.set(5);
     list_add(Ptr::from_ref(&f.link), list.clone());
 
-    let mut f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
+    let f: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
     println!("malloc {:?}", f.raw_untyped());
     nodes.push(f.clone());
 

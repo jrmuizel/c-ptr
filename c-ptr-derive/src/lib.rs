@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::{quote, format_ident};
+use quote::quote;
 use syn::{parse_macro_input, DeriveInput, Data, Fields, Type};
 
 fn is_option_fn_ptr(ty: &Type) -> bool {

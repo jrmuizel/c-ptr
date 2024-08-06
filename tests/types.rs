@@ -1,4 +1,4 @@
-use c_ptr::{Ptr, TypeDesc, TypeInfo, malloc, free};
+use c_ptr::{Ptr, TypeDesc, malloc, free};
 
 
 #[test]

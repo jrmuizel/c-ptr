@@ -1,5 +1,5 @@
 
-use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{AddAssign, Deref, Index, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
+use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{Deref, Index, Sub}, ptr::NonNull, sync::{Mutex, MutexGuard}};
 
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
@@ -181,7 +181,7 @@ impl<T> Clone for Ptr<T> {
             return Self::null();
         }
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (base, md) = METADATA_STORE.get(self.ptr as *const _, &mut guard).expect("cloning pointer without metadata");
+        let (_base, md) = METADATA_STORE.get(self.ptr as *const _, &mut guard).expect("cloning pointer without metadata");
         md.inc_ref();
         Self { ptr: self.ptr }
     }
@@ -379,7 +379,7 @@ pub unsafe fn drop_ptr_in_place<T>(ptr: *const c_void) {
 
 impl<T: 'static> TypeDesc for Ptr<T> {
     fn type_desc() -> Vec<TypeInfo> {
-        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
+        let desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
         desc
     }
 }
@@ -468,7 +468,7 @@ pub fn memset<T: Reset + TypeDesc + 'static + Default> (ptr: Ptr<T>, value: c_in
     }
 }
 
-pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
+pub fn memcpy(_dest: Ptr<c_void>, _src: Ptr<c_void>, _size: usize) {
     panic!();
 }
 
@@ -512,7 +512,6 @@ impl<T: 'static> TypeDesc for Cell<T> {
 
 #[test]
 fn basic() {
-    let id = std::any::TypeId::of::<Foo>();
     let r: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
     r.x.set(5);
     let m: Ptr<Cell<i32>> = r.clone().cast();
@@ -779,17 +778,4 @@ fn strlen_test() {
     let s = Ptr::new_string("hello");
     assert_eq!(strlen(s.clone().cast()), 5);
     free(s);
-}
-
-fn main() {
-    let id = std::any::TypeId::of::<Foo>();
-    let r: Ptr<Foo> = malloc(std::mem::size_of::<Foo>()).cast();
-    r.x.set(5);
-    let m: Ptr<Cell<i32>> = r.clone().cast();
-    m.set(4);
-    let s: Ptr<Cell<i32>> = Ptr::from_ref(&r.y);
-    s.set(3);
-    println!("Hello, world! {:?} {}", r.x.get(), r.y.get());
-
-    free(r);
 }
