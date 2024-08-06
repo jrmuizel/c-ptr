@@ -623,17 +623,42 @@ impl<T> Clone for PtrCell<T> {
     }
 }
 
+pub struct RcPtr<T> {
+    value: Option<Rc<T>>
+}
+
+impl<T> Default for RcPtr<T> {
+    fn default() -> Self {
+        Self { value: None }
+    }
+}
+
+
+impl<T> Clone for RcPtr<T> {
+    fn clone(&self) -> Self {
+        RcPtr { value: self.value.clone() }
+    }
+}
+
+impl <T> RcPtr<T> {
+    pub fn is_null(&self) -> bool {
+        self.value.is_none()
+    }
+    pub fn null() -> Self {
+        Self { value: None }
+    }
+}
 
 #[derive(Default)]
 pub struct RcCell<T> {
-    value: Cell<Option<Rc<T>>>
+    value: Cell<RcPtr<T>>
 }
 impl<T> RcCell<T> {
-    pub fn set(&self, value: Option<Rc<T>>) {
+    pub fn set(&self, value: RcPtr<T>) {
         self.value.set(value);
     }
 
-    pub fn get(&self) -> Option<Rc<T>> {
+    pub fn get(&self) -> RcPtr<T> {
         let t = self.value.take();
         let t2 = t.clone();
         self.value.set(t);
@@ -641,11 +666,11 @@ impl<T> RcCell<T> {
     }
 
     pub fn null() -> Self {
-        Self { value: Cell::new(None) }
+        Self { value: Cell::new(RcPtr::null()) }
     }
 
     pub fn is_null(&self) -> bool {
-        self.get().is_none()
+        self.get().is_null()
     }
 }
 
