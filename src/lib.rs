@@ -588,6 +588,10 @@ pub struct PtrCell<T> {
 }
 
 impl<T> PtrCell<T> {
+
+    pub fn new(value: Ptr<T>) -> Self {
+        Self { value: Cell::new(value) }
+    }
     pub fn set(&self, value: Ptr<T>) {
         self.value.set(value);
     }
@@ -627,19 +631,6 @@ pub struct RcPtr<T> {
     value: Option<Rc<T>>
 }
 
-impl<T> Default for RcPtr<T> {
-    fn default() -> Self {
-        Self { value: None }
-    }
-}
-
-
-impl<T> Clone for RcPtr<T> {
-    fn clone(&self) -> Self {
-        RcPtr { value: self.value.clone() }
-    }
-}
-
 impl <T> RcPtr<T> {
     pub fn is_null(&self) -> bool {
         self.value.is_none()
@@ -647,13 +638,42 @@ impl <T> RcPtr<T> {
     pub fn null() -> Self {
         Self { value: None }
     }
+    pub fn new(val: T) -> Self {
+        Self { value: Some(Rc::new(val)) }
+    }
 }
+
+impl<T> Default for RcPtr<T> {
+    fn default() -> Self {
+        Self { value: None }
+    }
+}
+
+impl<T> Clone for RcPtr<T> {
+    fn clone(&self) -> Self {
+        RcPtr { value: self.value.clone() }
+    }
+}
+
+impl<T> Deref for RcPtr<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.value.as_ref().unwrap()
+    }
+}
+
+
 
 #[derive(Default)]
 pub struct RcCell<T> {
     value: Cell<RcPtr<T>>
 }
 impl<T> RcCell<T> {
+    pub fn new(value: RcPtr<T>) -> Self {
+        Self { value: Cell::new(value) }
+    }
+
     pub fn set(&self, value: RcPtr<T>) {
         self.value.set(value);
     }
