@@ -5,6 +5,7 @@ use memoffset::offset_of;
 use once_cell::sync::Lazy;
 pub use c_ptr_derive::TypeDesc;
 
+pub mod libc;
 
 
 //use crate::list::do_sum;
@@ -126,6 +127,10 @@ impl<T> Ptr<T> {
         let mut guard = METADATA_STORE.data.lock().unwrap();
         let (_, md) = METADATA_STORE.get_mut(self.ptr as *const c_void, &mut guard).expect("pointer should have metadata");
         md.cnt.get()
+    }
+
+    pub fn offset_from(&self, origin: Ptr<T>) -> isize {
+        (self.ptr as isize - origin.ptr as isize) / (std::mem::size_of::<T>() as isize)
     }
 }
 
@@ -291,7 +296,6 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
             }
         }
         return Ptr { ptr }
-
     }
 
     pub fn offset_bytes_and_cast<U: 'static + TypeDesc + Default>(self) -> Ptr<U> {
@@ -304,6 +308,14 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
         }
         // we could avoid ref count inc/dec if we specialized this
         Ptr::from_void(self.ptr.wrapping_offset(count) as *const c_void)
+    }
+
+    pub fn inc(&mut self) {
+        if self.is_null() {
+            panic!("offset of null pointer");
+        }
+        // we could avoid ref count inc/dec if we specialized this
+        *self = Ptr::from_void(self.ptr.wrapping_offset(1) as *const c_void)
     }
 
 }
@@ -473,6 +485,14 @@ pub fn malloc(size: usize) -> Ptr<c_void> {
     ptr
 }
 
+
+pub fn calloc(size: usize, count: usize) -> Ptr<c_void> {
+    let ptr = Ptr { ptr: unsafe { std::alloc::alloc(Layout::from_size_align(size * count, MAX_ALIGN).unwrap()) as *const _ as *const _ }};
+    let metadata = Box::new(Metadata { size: size, cnt: Cell::new(1), valid: true, type_info: Vec::new() });
+    METADATA_STORE.put(ptr.ptr, metadata);
+    ptr
+}
+
 pub trait Reset {
     fn reset(&self);
 }
@@ -523,14 +543,20 @@ pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
     }
 }
 
-pub fn strlen(mut str: Ptr<Cell<core::ffi::c_char>>) -> core::ffi::c_ulong {
-        let mut count = 0;
-        while str.get() != 0 { // Loop until null terminator is reached
-          count += 1;
-          str = str.offset(1);
+pub fn memcmp(p1: Ptr<c_void>, p2: Ptr<c_void>, size: usize) -> i32 {
+    let p1: Ptr<Cell<core::ffi::c_char>> = p1.cast();
+    let p2: Ptr<Cell<core::ffi::c_char>> = p2.cast();
+    for i in 0..size {
+        let byte1 = p1.clone().offset(i as isize).get();
+        let byte2 = p2.clone().offset(i as isize).get();
+        if byte1 != byte2 {
+            return (byte1).cmp(&(byte2)) as i32;
         }
-        return count;
+    }
+    return 0;
 }
+
+
 
 pub fn free<T>(addr: Ptr<T>) {
     eprintln!("free({:?}: Ptr<{}>)", addr.ptr, std::any::type_name::<T>());
@@ -632,6 +658,10 @@ impl<T: Set> Set for [T; 2] {
     }
 }
 
+// A convenience wrapper around Ptr<Cell<T>>
+pub struct CellPtr<T> {
+    value: Ptr<Cell<T>>
+}
 
 /**
 A convenience wrapper around Cell<Ptr<T>> that implements get and allows cloning
@@ -805,6 +835,40 @@ impl_type_desc!(U32);
 
 
 #[derive(Clone, Debug, Default)]
+pub struct Char {
+    value: Cell<std::ffi::c_char>
+}
+
+
+impl Char {
+    pub const fn new(value: std::ffi::c_char) -> Self {
+        Self { value: Cell::new(value) }
+    }
+
+    pub fn set(&self, value: std::ffi::c_char) {
+        self.value.set(value);
+    }
+
+    pub fn get(&self) -> std::ffi::c_char {
+        self.value.get()
+    }
+}
+
+
+impl TypeDesc for Char {
+    fn type_desc() -> Vec<TypeInfo> {
+        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: empty_drop, set_ptr: set_ptr::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}]
+    }
+}
+
+impl Set for Char {
+    fn set(&self, src: &Self) {
+        self.value.set(src.value.get())
+    }
+}
+
+
+#[derive(Clone, Debug, Default)]
 pub struct I32 {
     value: Cell<i32>
 }
@@ -949,7 +1013,7 @@ fn end_ptr_deref() {
 #[test]
 fn strlen_test() {
     let s = Ptr::new_string("hello");
-    assert_eq!(strlen(s.clone().cast()), 5);
+    assert_eq!(libc::strlen(s.clone().cast()), 5);
     free(s);
 }
 
