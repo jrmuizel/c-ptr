@@ -46,7 +46,7 @@ impl Metadata {
             // the memory is currently untyped, so copy in the type desc for the
             // target type
             for ty in U::type_desc() {
-                self.type_info.push(TypeInfo { ty: ty.ty, drop_ptr: ty.drop_ptr, offset: ty.offset + offset, size: ty.size, name: ty.name})
+                self.type_info.push(TypeInfo { ty: ty.ty, drop_ptr: ty.drop_ptr, set_ptr: ty.set_ptr, offset: ty.offset + offset, size: ty.size, name: ty.name})
             }
             eprintln!("matches because uninit");
             return MetadataState::Uninit;
@@ -78,7 +78,7 @@ impl Metadata {
             if end <= offset && !(i < self.type_info.len() && self.type_info[i].offset < offset + std::mem::size_of::<U>()) {
                 let mut desc = Vec::new();
                 for ty in U::type_desc() {
-                    desc.push(TypeInfo { ty: ty.ty, drop_ptr: ty.drop_ptr, offset: ty.offset + offset, size: ty.size, name: ty.name})
+                    desc.push(TypeInfo { ty: ty.ty, drop_ptr: ty.drop_ptr, set_ptr: ty.set_ptr, offset: ty.offset + offset, size: ty.size, name: ty.name})
                 }
                 self.type_info.splice(i..i, desc);
                 return MetadataState::Uninit;
@@ -103,7 +103,7 @@ impl<T> Ptr<T> {
         this.ptr == other.ptr
     }
 
-    pub fn null() -> Ptr<T> {
+    pub const fn null() -> Ptr<T> {
         Ptr { ptr: std::ptr::null() }
     }
 
@@ -124,7 +124,7 @@ impl<T> Ptr<T> {
 
     pub fn count(&self) -> usize {
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (_, md) = METADATA_STORE.get(self.ptr as *const c_void, &mut guard).expect("pointer should have metadata");
+        let (_, md) = METADATA_STORE.get_mut(self.ptr as *const c_void, &mut guard).expect("pointer should have metadata");
         md.cnt.get()
     }
 }
@@ -139,7 +139,7 @@ impl<T: Default + TypeDesc + 'static> Index<isize> for Ptr<T> {
         dbg!(std::any::type_name::<T>());
         let mut guard = METADATA_STORE.data.lock().unwrap();
         dbg!(ptr as *const _);
-        let (base, md) = METADATA_STORE.get(ptr as *const _, &mut guard).unwrap();
+        let (base, md) = METADATA_STORE.get_mut(ptr as *const _, &mut guard).unwrap();
         let offset = ptr as *const _ as usize - base as usize;
         assert!(!md.type_info.is_empty());
 
@@ -181,7 +181,7 @@ impl<T> Clone for Ptr<T> {
             return Self::null();
         }
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (_base, md) = METADATA_STORE.get(self.ptr as *const _, &mut guard).expect("cloning pointer without metadata");
+        let (_base, md) = METADATA_STORE.get_mut(self.ptr as *const _, &mut guard).expect("cloning pointer without metadata");
         md.inc_ref();
         Self { ptr: self.ptr }
     }
@@ -194,7 +194,7 @@ impl<T> Drop for Ptr<T> {
             return;
         }
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (base, md) = METADATA_STORE.get(self.ptr as *const _, &mut guard).expect("pointer should have metadata");
+        let (base, md) = METADATA_STORE.get_mut(self.ptr as *const _, &mut guard).expect("pointer should have metadata");
         md.cnt.set(md.cnt.get() - 1);
         eprintln!("dropping {:?} to {}", self.ptr, md.cnt.get());
         if md.cnt.get() == 0 {
@@ -211,7 +211,7 @@ impl<T> Drop for Ptr<T> {
 unsafe fn raw_deref<'a, T>(ptr: *const T) -> &'a T {
     assert_ne!(ptr, std::ptr::null());
     let mut guard = METADATA_STORE.data.lock().unwrap();
-    let (base, md) = METADATA_STORE.get(ptr as *const _, &mut guard).unwrap();
+    let (base, md) = METADATA_STORE.get_mut(ptr as *const _, &mut guard).unwrap();
     if !md.valid {
         drop(guard);
         panic!("deref of freed memory");
@@ -238,7 +238,7 @@ impl<T: 'static + TypeDesc> Ptr<T> {
     pub fn cast<U: 'static + TypeDesc + Default>(self) -> Ptr<U> {
         dbg!(self.ptr);
         let mut guard = METADATA_STORE.data.lock().unwrap();
-        let (base, md) = METADATA_STORE.get(self.ptr as *const _, &mut guard).unwrap();
+        let (base, md) = METADATA_STORE.get_mut(self.ptr as *const _, &mut guard).unwrap();
         let offset = self.ptr as usize - base as usize;
         match md.matches_type::<U>(offset) {
             MetadataState::Matches => {},
@@ -266,7 +266,7 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
         dbg!(std::any::type_name::<T>());
         let mut guard = METADATA_STORE.data.lock().unwrap();
         dbg!(ptr as *const _);
-        let Some((base, md)) = METADATA_STORE.get(ptr as *const _, &mut guard) else {
+        let Some((base, md)) = METADATA_STORE.get_mut(ptr as *const _, &mut guard) else {
             drop(guard);
             panic!("missing metadata for {:?}", ptr);
         };
@@ -345,6 +345,7 @@ pub struct TypeInfo {
     pub size: usize,
     pub ty: std::any::TypeId,
     pub drop_ptr: unsafe fn(*const c_void),
+    pub set_ptr: unsafe fn(*const c_void, *const c_void),
     pub name: &'static str
 }
 
@@ -364,13 +365,23 @@ fn empty_drop(_: *const c_void) {
 
 }
 
+pub unsafe fn panic_set(dst: *const c_void, src: *const c_void) {
+    panic!();
+}
+
+unsafe fn set_ptr<T: Set>(dst: *const c_void, src: *const c_void) {
+    let src = (src as *const T).as_ref().unwrap();
+    let dst = (dst as *const T).as_ref().unwrap();
+    src.set(dst);
+}
+
 // macro to implement TypeDesc
 macro_rules! impl_type_desc {
     ($($t:ty),*) => {
         $(
             impl TypeDesc for $t {
                 fn type_desc() -> Vec<TypeInfo> {
-                    vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: empty_drop, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}]
+                    vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: empty_drop, set_ptr: panic_set, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}]
                 }
             }
         )*
@@ -386,7 +397,7 @@ pub unsafe fn drop_ptr_in_place<T>(ptr: *const c_void) {
 
 impl<T: 'static> TypeDesc for Ptr<T> {
     fn type_desc() -> Vec<TypeInfo> {
-        let desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
+        let desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, set_ptr: panic_set, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
         desc
     }
 }
@@ -394,12 +405,12 @@ impl<T: 'static> TypeDesc for Ptr<T> {
 
 impl TypeDesc for Foo {
     fn type_desc() -> Vec<TypeInfo> {
-        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, set_ptr: panic_set, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
         for x in Cell::<i32>::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, x) + x.offset, ty: x.ty, drop_ptr: x.drop_ptr, size: x.size, name: x.name})
+            desc.push(TypeInfo{ offset: offset_of!(Self, x) + x.offset, ty: x.ty, drop_ptr: x.drop_ptr, set_ptr: x.set_ptr, size: x.size, name: x.name})
         }
         for y in Cell::<i32>::type_desc() {
-            desc.push(TypeInfo{ offset: offset_of!(Self, y) + y.offset, ty: y.ty, drop_ptr: y.drop_ptr, size: y.size, name: y.name})
+            desc.push(TypeInfo{ offset: offset_of!(Self, y) + y.offset, ty: y.ty, drop_ptr: y.drop_ptr, set_ptr: y.set_ptr, size: y.size, name: y.name})
         }
         desc
     }
@@ -426,8 +437,19 @@ impl MetadataStore {
     fn put(&self, addr: *const c_void, metadata: Box<Metadata>) {
         self.data.lock().unwrap().insert(SyncPtr(addr), metadata);
     }
-    fn get<'a>(&self, addr: *const c_void, guard: &'a mut MutexGuard<PtrMap>) -> Option<(*const c_void, &'a mut Box<Metadata>)> {
+    fn get_mut<'a>(&self, addr: *const c_void, guard: &'a mut MutexGuard<PtrMap>) -> Option<(*const c_void, &'a mut Box<Metadata>)> {
         let x = guard.range_mut(..=SyncPtr(addr)).last();
+        if let Some((base, md)) = x {
+            let offset = addr as usize - base.0 as usize;
+            if offset > md.size {
+                return None
+            }
+            return Some((base.0, md))
+        }
+        None
+    }
+    fn get<'a>(&self, addr: *const c_void, guard: &'a MutexGuard<PtrMap>) -> Option<(*const c_void, &'a Box<Metadata>)> {
+        let x = guard.range(..=SyncPtr(addr)).last();
         if let Some((base, md)) = x {
             let offset = addr as usize - base.0 as usize;
             if offset > md.size {
@@ -467,6 +489,10 @@ impl<T: Reset> Reset for RcCell<T> {
     }
 }
 
+pub trait Set {
+    fn set(&self, src: &Self);
+}
+
 pub fn memset<T: Reset + TypeDesc + 'static + Default> (ptr: Ptr<T>, value: c_int, size: usize) {
     assert_eq!(value, 0);
     if size == std::mem::size_of::<T>() {
@@ -481,8 +507,20 @@ pub fn memset<T: Reset + TypeDesc + 'static + Default> (ptr: Ptr<T>, value: c_in
     }
 }
 
-pub fn memcpy(_dest: Ptr<c_void>, _src: Ptr<c_void>, _size: usize) {
-    panic!();
+// This does a type safe memcpy
+pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
+    let mut guard = METADATA_STORE.data.lock().unwrap();
+    let (dest_base, dest_md) = METADATA_STORE.get(dest.ptr as *const _, &guard).unwrap();
+    let (src_base, src_md) = METADATA_STORE.get(src.ptr as *const _, &guard).unwrap();
+
+    assert_eq!(dest.ptr, dest_base);
+    //let (src_base, src_md) = METADATA_STORE.get(src.ptr as *const _, &mut guard).unwrap();
+    assert_eq!(src.ptr, src_base);
+    if dest_md.type_info[0].ty == src_md.type_info[0].ty && dest_md.type_info[0].size == size {
+        unsafe { (dest_md.type_info[0].set_ptr)(dest.ptr, src.ptr); }
+    } else {
+        panic!();
+    }
 }
 
 pub fn strlen(mut str: Ptr<Cell<core::ffi::c_char>>) -> core::ffi::c_ulong {
@@ -500,7 +538,7 @@ pub fn free<T>(addr: Ptr<T>) {
         return;
     }
     let mut guard = METADATA_STORE.data.lock().unwrap();
-    let (base, md) = METADATA_STORE.get(addr.ptr as *const _, &mut guard).unwrap();
+    let (base, md) = METADATA_STORE.get_mut(addr.ptr as *const _, &mut guard).unwrap();
     let was_valid = md.valid;
     md.valid = false;
     eprintln!("done freeing");
@@ -513,12 +551,21 @@ pub fn free<T>(addr: Ptr<T>) {
     assert_eq!(base, addr.ptr as *const c_void);
 }
 
-impl<T: 'static> TypeDesc for Cell<T> {
+impl<T: Default + Clone> Set for Cell<T> {
+    fn set(&self, src: &Self) {
+        let t = src.take();
+        let t2 = t.clone();
+        src.set(t);
+        self.set(t2);
+    }
+}
+
+impl<T: 'static + Default + Clone> TypeDesc for Cell<T> {
     fn type_desc() -> Vec<TypeInfo> {
         dbg!(std::any::type_name::<Self>());
         let target_type = std::any::TypeId::of::<Self>();
         dbg!(target_type);
-        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()},
+        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, set_ptr: set_ptr::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()},
         ]
     }
 }
@@ -565,17 +612,23 @@ fn double_free() {
 }
 
 
-
-
-impl<T: 'static + TypeDesc> TypeDesc for [T; 2] {
+impl<T: 'static + TypeDesc + Set + Clone + Default> TypeDesc for [T; 2] {
     fn type_desc() -> Vec<TypeInfo> {
-        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, set_ptr: set_ptr::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
         for i in 0..2 {
             for x in T::type_desc() {
-                desc.push(TypeInfo{ offset: i * std::mem::size_of::<T>() + x.offset, ty: x.ty, drop_ptr: x.drop_ptr, size: x.size, name: x.name})
+                desc.push(TypeInfo{ offset: i * std::mem::size_of::<T>() + x.offset, ty: x.ty, drop_ptr: x.drop_ptr, set_ptr: x.set_ptr, size: x.size, name: x.name})
             }
         }
         desc
+    }
+}
+
+impl<T: Set> Set for [T; 2] {
+    fn set(&self, src: &Self) {
+        for i in 0..2 {
+            self[i].set(&src[i]);
+        }
     }
 }
 
@@ -587,19 +640,26 @@ pub struct PtrCell<T> {
     value: Cell<Ptr<T>>
 }
 
+static GLOBAL_LOCK: Mutex<()> = Mutex::new(());
+
+
 impl<T> PtrCell<T> {
 
-    pub fn new(value: Ptr<T>) -> Self {
+    pub const fn new(value: Ptr<T>) -> Self {
         Self { value: Cell::new(value) }
     }
     pub fn set(&self, value: Ptr<T>) {
+        let guard = GLOBAL_LOCK.lock().unwrap();
         self.value.set(value);
+        drop(guard);
     }
 
     pub fn get(&self) -> Ptr<T> {
+        let guard = GLOBAL_LOCK.lock().unwrap();
         let t = self.value.take();
         let t2 = t.clone();
         self.value.set(t);
+        drop(guard);
         t2
     }
 
@@ -611,6 +671,10 @@ impl<T> PtrCell<T> {
         self.get().is_null()
     }
 }
+
+// We rely on GLOBAL_LOCK for safety here.
+// That lets us ensure that PtrCell is the size of a pointer
+unsafe impl<T> Sync for PtrCell<T> {}
 
 impl<T> Default for PtrCell<T> {
     fn default() -> Self {
@@ -706,7 +770,7 @@ impl<T> Clone for RcCell<T> {
 
 impl<T: TypeDesc + 'static> TypeDesc for RcCell<T> {
     fn type_desc() -> Vec<TypeInfo> {
-        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: empty_drop, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}]
+        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, set_ptr: panic_set, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}]
     }
 }
 
@@ -746,7 +810,7 @@ pub struct I32 {
 }
 
 impl I32 {
-    pub fn new(value: i32) -> Self {
+    pub const fn new(value: i32) -> Self {
         I32 { value: Cell::new(value) }
     }
 
@@ -770,11 +834,21 @@ impl I32 {
     }
 }
 
-impl_type_desc!(I32);
+impl TypeDesc for I32 {
+    fn type_desc() -> Vec<TypeInfo> {
+        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: empty_drop, set_ptr: set_ptr::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}]
+    }
+}
 
 impl PartialEq for I32 {
     fn eq(&self, other: &Self) -> bool {
         self.value.get() == other.value.get()
+    }
+}
+
+impl Set for I32 {
+    fn set(&self, src: &Self) {
+        self.value.set(src.value.get())
     }
 }
 
@@ -801,7 +875,7 @@ impl<T: 'static> TypeDesc for PtrCell<T> {
         dbg!(std::any::type_name::<Self>());
         let target_type = std::any::TypeId::of::<Self>();
         dbg!(target_type);
-        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()},
+        vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, set_ptr: panic_set, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()},
         ]
     }
 }
@@ -877,4 +951,21 @@ fn strlen_test() {
     let s = Ptr::new_string("hello");
     assert_eq!(strlen(s.clone().cast()), 5);
     free(s);
+}
+
+#[test]
+fn memcpy_test() {
+    let p1: Ptr<I32> = Ptr::new(I32::new(5));
+    let p2: Ptr<I32> = Ptr::new(I32::new(6));
+    memcpy(p1.clone().into_void(), p2.clone().into_void(), std::mem::size_of::<I32>());
+    assert_eq!(p1.get(), 5);
+    free(p1);
+    free(p2);
+}
+
+#[test]
+fn static_ptr_cell() {
+    static P: PtrCell<I32> = PtrCell::new(Ptr::null());
+    let p = Ptr::new(I32::new(5));
+    P.set(p);
 }
