@@ -22,7 +22,7 @@ pub fn exit(status: std::ffi::c_int) {
     std::process::exit(status as i32);
 }
 
-pub fn strncmp(mut str1: Ptr<Char>, mut str2: Ptr<Char>, mut n: usize) -> isize {
+pub fn strncmp(mut str1: Ptr<Char>, mut str2: Ptr<Char>, mut n: usize) -> i32 {
     while (n > 0 && str1.get() != 0 && str2.get() != 0) {
         if (str1.get() != str2.get()) {
             return (str1.get() - str2.get()).into();
@@ -41,7 +41,7 @@ pub fn strncmp(mut str1: Ptr<Char>, mut str2: Ptr<Char>, mut n: usize) -> isize 
     }
 }
 
-pub fn strlen(mut str: Ptr<Char>) -> core::ffi::c_ulong {
+pub fn strlen(mut str: Ptr<Char>) -> usize {
     let mut count = 0;
     while str.get() != 0 { // Loop until null terminator is reached
       count += 1;

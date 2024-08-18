@@ -328,9 +328,9 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
     }
 }
 
-impl Ptr<Cell<core::ffi::c_char>> {
+impl Ptr<Char> {
     pub fn new_string(str: &str) -> Self {
-        let mut ptr: Ptr<Cell<core::ffi::c_char>> = malloc(str.len() + 1).cast();
+        let mut ptr: Ptr<Char> = malloc(str.len() + 1).cast();
         let start = ptr.clone();
         for (i, c) in str.bytes().enumerate() {
             ptr.set(c as i8);
