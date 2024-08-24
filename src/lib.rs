@@ -1,6 +1,7 @@
 
-use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{Deref, Index, Sub}, ptr::NonNull, rc::Rc, sync::{Mutex, MutexGuard}};
+use std::{alloc::Layout, cell::Cell, collections::BTreeMap, ffi::{c_int, c_void}, ops::{Deref, Index, Sub}, ptr::NonNull, rc::Rc, sync::{atomic::{AtomicU8, Ordering}, Mutex, MutexGuard}};
 
+use libc::strlen;
 use memoffset::offset_of;
 use once_cell::sync::Lazy;
 pub use c_ptr_derive::TypeDesc;
@@ -328,6 +329,9 @@ impl<T: 'static + TypeDesc + Default> Ptr<T> {
     }
 }
 
+unsafe impl<T: Sync> Sync for Ptr<T> { }
+unsafe impl<T: Send> Send for Ptr<T> { }
+
 impl Ptr<Char> {
     pub fn new_string(str: &str) -> Self {
         let mut ptr: Ptr<Char> = malloc(str.len() + 1).cast();
@@ -340,6 +344,24 @@ impl Ptr<Char> {
         ptr.set(0);
         start
     }
+}
+
+
+// makes a Ptr from a string literal
+macro_rules! s {
+    ($s:literal) => {
+        {
+            use std::sync::LazyLock;
+            static _P: LazyLock<PtrCell<Char>> = LazyLock::new(|| PtrCell::new(Ptr::<Char>::new_string($s)));
+            _P.get()
+        }
+    }
+
+}
+#[test]
+fn string_literal() {
+    let s = s!("hello");
+    assert_eq!(strlen(s), 5)
 }
 
 impl<T: 'static + TypeDesc + Default> Sub<usize> for Ptr<T> {
@@ -834,23 +856,29 @@ impl U32 {
 impl_type_desc!(U32);
 
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct Char {
-    value: Cell<std::ffi::c_char>
+    value: AtomicU8
+}
+
+impl Clone for Char {
+    fn clone(&self) -> Self {
+        Self { value: AtomicU8::new(self.value.load(Ordering::Relaxed)) }
+    }
 }
 
 
 impl Char {
     pub const fn new(value: std::ffi::c_char) -> Self {
-        Self { value: Cell::new(value) }
+        Self { value: AtomicU8::new(value as u8) }
     }
 
     pub fn set(&self, value: std::ffi::c_char) {
-        self.value.set(value);
+        self.value.store(value as u8, Ordering::Relaxed);
     }
 
     pub fn get(&self) -> std::ffi::c_char {
-        self.value.get()
+        self.value.load(Ordering::Relaxed) as std::ffi::c_char
     }
 }
 
@@ -863,7 +891,7 @@ impl TypeDesc for Char {
 
 impl Set for Char {
     fn set(&self, src: &Self) {
-        self.value.set(src.value.get())
+        self.value.store(src.value.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 }
 
