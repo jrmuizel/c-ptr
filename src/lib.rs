@@ -1023,18 +1023,38 @@ fn end_ptr() {
     free(start);
 }
 
+pub struct AutoPtr<T> {
+    p: Ptr<T>
+}
+
+impl<T: TypeDesc + Default + 'static > AutoPtr<T> {
+    pub fn new(value: T) -> Self {
+        AutoPtr { p: Ptr::new(value) }
+    }
+
+    pub fn ptr(&self) -> Ptr<T> {
+        self.p.clone()
+    }
+}
+
+impl<T> Drop for AutoPtr<T> {
+    fn drop(&mut self) {
+        free(self.p.clone());
+    }
+}
+
+impl<T> Deref for AutoPtr<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.p
+    }
+}
+
 #[test]
 #[should_panic]
 fn end_ptr_deref() {
-    struct AutoPtr {
-        p: Ptr<I32>
-    }
-    impl Drop for AutoPtr {
-        fn drop(&mut self) {
-            free(self.p.clone());
-        }
-    }
-    let start = AutoPtr { p: malloc(std::mem::size_of::<[I32; 2]>()).cast() };
+    let start: AutoPtr<I32> = AutoPtr { p: malloc(std::mem::size_of::<[I32; 2]>()).cast() };
     let end: Ptr<I32> = start.p.clone().offset(2);
     end.set(3);
 }
