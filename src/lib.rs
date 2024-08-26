@@ -567,8 +567,8 @@ pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
 }
 
 pub fn memcmp(p1: Ptr<c_void>, p2: Ptr<c_void>, size: usize) -> i32 {
-    let p1: Ptr<Cell<core::ffi::c_char>> = p1.cast();
-    let p2: Ptr<Cell<core::ffi::c_char>> = p2.cast();
+    let p1: Ptr<Char> = p1.cast();
+    let p2: Ptr<Char> = p2.cast();
     for i in 0..size {
         let byte1 = p1.clone().offset(i as isize).get();
         let byte2 = p2.clone().offset(i as isize).get();
