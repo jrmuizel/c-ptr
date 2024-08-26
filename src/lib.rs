@@ -348,11 +348,12 @@ impl Ptr<Char> {
 
 
 // makes a Ptr from a string literal
+#[macro_export]
 macro_rules! s {
     ($s:literal) => {
         {
             use std::sync::LazyLock;
-            static _P: LazyLock<PtrCell<Char>> = LazyLock::new(|| PtrCell::new(Ptr::<Char>::new_string($s)));
+            static _P: LazyLock<$crate::PtrCell<Char>> = LazyLock::new(|| $crate::PtrCell::new($crate::Ptr::<Char>::new_string($s)));
             _P.get()
         }
     }

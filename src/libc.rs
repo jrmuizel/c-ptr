@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use crate::{Char, Ptr};
+use crate::{Char, Ptr, PtrCell};
 
 pub fn isspace(c: std::ffi::c_int) -> std::ffi::c_int {
     char::from_u32(c as u32).unwrap().is_whitespace() as std::ffi::c_int
@@ -48,4 +48,26 @@ pub fn strlen(mut str: Ptr<Char>) -> usize {
       str.inc();
     }
     return count;
+}
+
+// XXX: this could probably use better error handling
+pub fn strtoul(str: Ptr<Char>, endptr: Ptr<PtrCell<Char>>, base: std::ffi::c_int) -> std::ffi::c_ulong {
+    let base = base as std::ffi::c_ulong;
+    let mut value: std::ffi::c_ulong = 0;
+    let mut str = str.clone();
+    while str.get() != 0 {
+        let digit = match str.get() as u8 {
+            b'0'..=b'9' => str.get() as u8 - b'0',
+            b'a'..=b'z' => str.get() as u8  - b'a' + 10,
+            b'A'..=b'Z' => str.get() as u8  - b'A' + 10,
+            _ => break,
+        };
+        if digit as std::ffi::c_ulong >= base {
+            break;
+        }
+        value = value * base + digit as std::ffi::c_ulong;
+        str.inc();
+    }
+    endptr.set(str);
+    value
 }
