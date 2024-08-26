@@ -140,7 +140,6 @@ impl<T: Default + TypeDesc + 'static> Index<isize> for Ptr<T> {
 
     fn index(&self, index: isize) -> &Self::Output {
         dbg!("indexing");
-        println!("indexing stdout");
         let ptr = self.ptr.wrapping_offset(index);
         dbg!(std::any::type_name::<T>());
         let mut guard = METADATA_STORE.data.lock().unwrap();
