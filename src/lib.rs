@@ -715,7 +715,7 @@ impl<T> PtrCell<T> {
         t2
     }
 
-    pub fn null() -> Self {
+    pub const fn null() -> Self {
         PtrCell { value: Cell::new(Ptr::null()) }
     }
 
