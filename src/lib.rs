@@ -439,7 +439,7 @@ impl<T: 'static> TypeDesc for Ptr<T> {
 
 impl TypeDesc for Foo {
     fn type_desc() -> Vec<TypeInfo> {
-        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, set_ptr: panic_set, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
+        let mut desc = vec![TypeInfo{ offset: 0, ty: std::any::TypeId::of::<Self>(), drop_ptr: drop_ptr_in_place::<Self>, set_ptr: set_foo, size: std::mem::size_of::<Self>(), name: std::any::type_name::<Self>()}];
         for x in Cell::<i32>::type_desc() {
             desc.push(TypeInfo{ offset: offset_of!(Self, x) + x.offset, ty: x.ty, drop_ptr: x.drop_ptr, set_ptr: x.set_ptr, size: x.size, name: x.name})
         }
@@ -448,6 +448,13 @@ impl TypeDesc for Foo {
         }
         desc
     }
+}
+
+unsafe fn set_foo(dst: *const c_void, src: *const c_void) {
+    let src = (src as *const Foo).as_ref().unwrap();
+    let dst = (dst as *const Foo).as_ref().unwrap();
+    dst.x.set(src.x.get());
+    dst.y.set(src.y.get());
 }
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct SyncPtr(*const c_void);
@@ -550,7 +557,7 @@ pub fn memset<T: Reset + TypeDesc + 'static + Default> (ptr: Ptr<T>, value: c_in
 }
 
 // This does a type safe memcpy
-pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
+pub fn memcpy(mut dest: Ptr<c_void>, mut src: Ptr<c_void>, size: usize) {
     let mut guard = METADATA_STORE.data.lock().unwrap();
     let (dest_base, dest_md) = METADATA_STORE.get(dest.ptr as *const _, &guard).unwrap();
     let (src_base, src_md) = METADATA_STORE.get(src.ptr as *const _, &guard).unwrap();
@@ -558,10 +565,17 @@ pub fn memcpy(dest: Ptr<c_void>, src: Ptr<c_void>, size: usize) {
     assert_eq!(dest.ptr, dest_base);
     //let (src_base, src_md) = METADATA_STORE.get(src.ptr as *const _, &mut guard).unwrap();
     assert_eq!(src.ptr, src_base);
-    if dest_md.type_info[0].ty == src_md.type_info[0].ty && dest_md.type_info[0].size == size {
+    let mut i = 0;
+    let mut remaining_size = size;
+    while remaining_size > 0 && dest_md.type_info[i].ty == src_md.type_info[i].ty && dest_md.type_info[i].size <= remaining_size {
         unsafe { (dest_md.type_info[0].set_ptr)(dest.ptr, src.ptr); }
-    } else {
-        panic!();
+        remaining_size -= dest_md.type_info[i].size;
+        dest.ptr = dest.ptr.wrapping_offset(dest_md.type_info[i].size as isize);
+        src.ptr = src.ptr.wrapping_offset(src_md.type_info[i].size as isize);
+        i += 1;
+    }
+    if remaining_size > 0 {
+        panic!("type or size mismatch {} {}", remaining_size, i);
     }
 }
 
@@ -1071,6 +1085,17 @@ fn memcpy_test() {
     let p2: Ptr<I32> = Ptr::new(I32::new(6));
     memcpy(p1.clone().into_void(), p2.clone().into_void(), std::mem::size_of::<I32>());
     assert_eq!(p1.get(), 5);
+    free(p1);
+    free(p2);
+}
+
+#[test]
+fn memcpy_foo() {
+    let p1: Ptr<Foo> = Ptr::new(Foo {x: Cell::new(5), y: Cell::new(6)});
+    let p2: Ptr<Foo> = Ptr::new(Foo {x: Cell::new(7), y: Cell::new(8)});
+    memcpy(p1.clone().into_void(), p2.clone().into_void(), std::mem::size_of::<Foo>());
+    assert_eq!(p1.x.get(),7);
+    assert_eq!(p1.y.get(),8);
     free(p1);
     free(p2);
 }
